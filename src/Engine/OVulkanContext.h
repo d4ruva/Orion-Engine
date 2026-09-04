@@ -29,6 +29,15 @@ class OVulkanContext {
 	bool CreateSwapchain();
 	bool CreateImageViews();
 
+	bool CreateCommandPool();
+	bool CreateCommandBuffer();
+	bool CreateSyncObjects();
+
+	void TransitionImage(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout);
+
+public:
+	void RenderFrame();
+
   private:
     GLFWwindow *m_Window = nullptr;
 
@@ -49,6 +58,13 @@ class OVulkanContext {
 	VkSwapchainKHR m_Swapchain = VK_NULL_HANDLE;
 	std::vector<VkImage> m_SwapchainImages;
 	std::vector<VkImageView> m_SwapchainImageViews;
-	
+
+	VkCommandPool m_CommandPool = VK_NULL_HANDLE;
+	VkCommandBuffer m_CommandBuffer = VK_NULL_HANDLE;
+
+	VkSemaphore m_ImageAvailableSemaphore = VK_NULL_HANDLE;
+	VkSemaphore m_RenderFinishedSemaphore = VK_NULL_HANDLE;
+
+	VkFence m_InFlightFence = VK_NULL_HANDLE;
 };
 } // namespace Orion

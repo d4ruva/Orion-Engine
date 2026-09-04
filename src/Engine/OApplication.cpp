@@ -39,6 +39,8 @@ bool OApplication::Init() {
 void OApplication::Run() {
     while (!glfwWindowShouldClose(m_Window)) {
         glfwPollEvents();
+
+		m_VulkanContext->RenderFrame();
     }
 }
 
