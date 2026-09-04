@@ -1,4 +1,5 @@
 #include "OVulkanContext.h"
+#include "GLFW/glfw3.h"
 #include "OLog.h"
 #include "VkBootstrap.h"
 #include <vulkan/vulkan_core.h>
@@ -40,6 +41,8 @@ bool OVulkanContext::Init(GLFWwindow* window) {
     if (!CreateSurface()) return false;
     if (!ChoosePhysicalDevice()) return false;
     if (!CreateDevice()) return false;
+    if (!CreateSwapchain()) return false;
+    if (!CreateImageViews()) return false;
 
     return true;
 }
@@ -123,10 +126,10 @@ bool OVulkanContext::CreateDevice() {
 
     auto graphics_queue_index_ret = VKB_Device.get_queue_index(vkb::QueueType::graphics);
 
-    if(!graphics_queue_index_ret){
+    if (!graphics_queue_index_ret) {
         ORION_ERROR("Failed to get graphics Queue Index: {}", graphics_queue_index_ret.error().message());
         return false;
-  }
+    }
 
     graphicsQueueIndex = graphics_queue_index_ret.value();
 
@@ -135,7 +138,47 @@ bool OVulkanContext::CreateDevice() {
     return true;
 }
 
+bool OVulkanContext::CreateSwapchain() {
+    vkb::SwapchainBuilder swapchainBuilder{ VKB_Device };
+
+    int width, height;
+
+    glfwGetWindowSize(m_Window, &width, &height);
+
+    auto swap_ret = swapchainBuilder.set_desired_format({ VK_FORMAT_B8G8R8A8_UNORM, VK_COLORSPACE_SRGB_NONLINEAR_KHR })
+                        .set_desired_present_mode(VK_PRESENT_MODE_MAILBOX_KHR)
+                        .set_desired_extent(width, height)
+                        .build();
+
+    if (!swap_ret) {
+        ORION_ERROR("Failed to create Swapchain: {}", swap_ret.error().message());
+        return false;
+    }
+
+    VKB_Swapchain = swap_ret.value();
+
+    m_Swapchain = VKB_Swapchain.swapchain;
+    ORION_INFO("Swapchain Created Successfully");
+
+    m_SwapchainImages = VKB_Swapchain.get_images().value();
+    m_SwapchainImageViews = VKB_Swapchain.get_image_views().value();
+
+    return true;
+}
+
+bool OVulkanContext::CreateImageViews() { return true; }
+
 void OVulkanContext::Shutdown() {
+
+    if (!m_SwapchainImageViews.empty()) {
+        for (auto imageView : m_SwapchainImageViews) {
+            vkDestroyImageView(m_Device, imageView, nullptr);
+        }
+    }
+
+    if (m_Swapchain != VK_NULL_HANDLE) {
+        vkb::destroy_swapchain(VKB_Swapchain);
+    }
 
     if (m_Device != VK_NULL_HANDLE) {
         vkb::destroy_device(VKB_Device);

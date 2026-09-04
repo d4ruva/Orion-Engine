@@ -1,3 +1,4 @@
+#include <vector>
 #define GLFW_INCLUDE_VULKAN
 #include "GLFW/glfw3.h"
 #include "VkBootstrap.h"
@@ -25,6 +26,8 @@ class OVulkanContext {
     bool CreateSurface();
     bool ChoosePhysicalDevice();
     bool CreateDevice();
+	bool CreateSwapchain();
+	bool CreateImageViews();
 
   private:
     GLFWwindow *m_Window = nullptr;
@@ -32,6 +35,7 @@ class OVulkanContext {
     vkb::Instance VKB_Instance;
     vkb::PhysicalDevice VKB_PhysicalDevice;
     vkb::Device VKB_Device;
+	vkb::Swapchain VKB_Swapchain;
 
     VkInstance m_Instance = VK_NULL_HANDLE;
     VkSurfaceKHR m_Surface = VK_NULL_HANDLE;
@@ -41,5 +45,10 @@ class OVulkanContext {
     
     VkQueue graphicsQueue = VK_NULL_HANDLE;
     uint32_t graphicsQueueIndex = 0;
+
+	VkSwapchainKHR m_Swapchain = VK_NULL_HANDLE;
+	std::vector<VkImage> m_SwapchainImages;
+	std::vector<VkImageView> m_SwapchainImageViews;
+	
 };
 } // namespace Orion

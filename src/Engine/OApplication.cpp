@@ -1,5 +1,6 @@
 #include "OApplication.h"
 #include "GLFW/glfw3.h"
+#include "OLog.h"
 #include "OVulkanContext.h"
 
 namespace Orion {
@@ -17,11 +18,10 @@ bool OApplication::Init() {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-    m_Window = glfwCreateWindow(m_Width, m_Height, "Untitled Window", nullptr,
-                                nullptr);
+    m_Window = glfwCreateWindow(m_Width, m_Height, "Untitled Window", nullptr, nullptr);
 
     if (!m_Window) {
-		ORION_ERROR("Failed to create a GLFW window");
+        ORION_ERROR("Failed to create a GLFW window");
         glfwTerminate();
         return false;
     }
