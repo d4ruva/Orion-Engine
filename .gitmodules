@@ -7,9 +7,6 @@
 [submodule "vendor/vkb"]
 	path = vendor/vkb
 	url = https://github.com/charles-lunarg/vk-bootstrap
-[submodule "build/vendor/spdlog"]
-	path = build/vendor/spdlog
-	url = https://github.com/gabime/spdlog
 [submodule "vendor/spdlog"]
 	path = vendor/spdlog
 	url = https://github.com/gabime/spdlog

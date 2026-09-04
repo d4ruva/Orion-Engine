@@ -55,7 +55,7 @@ bool OVulkanContext::CreateInstance() {
                         .set_app_name("Orion Engine")
                         .request_validation_layers()
                         .set_debug_callback(VulkanDebugCallback)
-                        .require_api_version(1, 4)
+                        .require_api_version(1, 3)
                         .build();
 
     if (!inst_ret) {
@@ -89,7 +89,7 @@ bool OVulkanContext::CreateSurface() {
 bool OVulkanContext::ChoosePhysicalDevice() {
     vkb::PhysicalDeviceSelector selector{ VKB_Instance };
 
-    auto phys_dev_ret = selector.set_minimum_version(1, 4).set_surface(m_Surface).select();
+    auto phys_dev_ret = selector.set_minimum_version(1, 3).set_surface(m_Surface).select();
 
     if (!phys_dev_ret) {
         ORION_ERROR("Failed to select Physical Device: {}", phys_dev_ret.error().message());
