@@ -3,6 +3,10 @@ out/
 
 .cache/
 
+.idea/
+
+*.spv
+
 compile_commands.json
 
 TODO.txt

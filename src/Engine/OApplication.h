@@ -3,6 +3,8 @@
 #include "GLFW/glfw3.h"
 #include <memory>
 
+#include "OVulkanPipeline.h"
+
 
 namespace Orion {
 class OVulkanContext;
@@ -24,5 +26,6 @@ class OApplication {
     uint32_t m_Height = 720;
 
     std::unique_ptr<OVulkanContext> m_VulkanContext;
+	std::unique_ptr<OVulkanPipeline> m_Pipeline;
 };
 } // namespace Orion

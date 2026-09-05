@@ -89,6 +89,15 @@ bool OVulkanContext::CreateSurface() {
 bool OVulkanContext::ChoosePhysicalDevice() {
     vkb::PhysicalDeviceSelector selector{ VKB_Instance };
 
+	VkPhysicalDeviceVulkan13Features vk13Features{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+		.synchronization2 = VK_TRUE,
+
+		.dynamicRendering = VK_TRUE,
+	};
+
+	selector.set_required_features_13(vk13Features);
+
     auto phys_dev_ret = selector.set_minimum_version(1, 3).set_surface(m_Surface).select();
 
     if (!phys_dev_ret) {
@@ -145,6 +154,8 @@ bool OVulkanContext::CreateDevice() {
 bool OVulkanContext::CreateSwapchain() {
     vkb::SwapchainBuilder swapchainBuilder{ VKB_Device };
 
+	swapchainBuilder.add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+
     int width, height;
 
     glfwGetWindowSize(m_Window, &width, &height);
@@ -166,6 +177,8 @@ bool OVulkanContext::CreateSwapchain() {
 
     m_SwapchainImages = VKB_Swapchain.get_images().value();
     m_SwapchainImageViews = VKB_Swapchain.get_image_views().value();
+
+	m_SwapchainImageLayouts.resize(m_SwapchainImages.size(), VK_IMAGE_LAYOUT_UNDEFINED);
 
     return true;
 }
@@ -220,10 +233,14 @@ bool OVulkanContext::CreateSyncObjects() {
 
     ORION_INFO("Created Image Available Semaphore Successfully");
 
-    if (vkCreateSemaphore(m_Device, &semaphoreInfo, nullptr, &m_RenderFinishedSemaphore) != VK_SUCCESS) {
+	m_RenderFinishedSemaphores.resize(m_SwapchainImages.size());
+
+	for(auto& semaphore: m_RenderFinishedSemaphores){
+    if (vkCreateSemaphore(m_Device, &semaphoreInfo, nullptr, &semaphore) != VK_SUCCESS) {
         ORION_ERROR("Failed to Create Render Finished Semaphore");
         return false;
     }
+	}
 
     ORION_INFO("Created Render Finished Semaphore Successfully");
 
@@ -238,53 +255,47 @@ bool OVulkanContext::CreateSyncObjects() {
 }
 
 void OVulkanContext::TransitionImage(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout) {
-    VkImageMemoryBarrier barrier{
-		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+	VkImageMemoryBarrier2 imageBarrier {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+    imageBarrier.pNext = nullptr;
 
-		.oldLayout = oldLayout,
-		.newLayout = newLayout,
+    imageBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    imageBarrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+    imageBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    imageBarrier.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
 
-		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+    imageBarrier.oldLayout = oldLayout;
+    imageBarrier.newLayout = newLayout;
 
-		.image = image,
-		.subresourceRange = {
-            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-            .baseMipLevel = 0,
-            .levelCount = 1,
-            .baseArrayLayer = 0,
-            .layerCount = 1,
-        },
+    imageBarrier.subresourceRange = {
+		.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+		.baseMipLevel = 0,
+		.levelCount = 1,
+		.baseArrayLayer = 0,
+		.layerCount = 1,
 	};
+    imageBarrier.image = image;
 
-    VkPipelineStageFlags sourceStage;
-    VkPipelineStageFlags destinationStage;
+    VkDependencyInfo depInfo {};
+    depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    depInfo.pNext = nullptr;
 
-	
-    if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-
-        sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-        destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    } else if (oldLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-
-        sourceStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR) {
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        barrier.dstAccessMask = 0;
-
-        sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-        destinationStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-    } else {
-        ORION_ERROR("Unsupported image layout transition");
-        return;
+	// Nothing needs to be synchronized from an UNDEFINED layout.
+    if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
+        imageBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+        imageBarrier.srcAccessMask = VK_ACCESS_2_NONE;
     }
 
-    vkCmdPipelineBarrier(commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    // Presentation doesn't perform memory accesses that need
+    // to be made visible through dstAccessMask.
+    if (newLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR) {
+        imageBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+        imageBarrier.dstAccessMask = VK_ACCESS_2_NONE;
+    }
+
+    depInfo.imageMemoryBarrierCount = 1;
+    depInfo.pImageMemoryBarriers = &imageBarrier;
+
+    vkCmdPipelineBarrier2(commandBuffer, &depInfo);
 }
 
 void OVulkanContext::RenderFrame() {
@@ -306,6 +317,8 @@ void OVulkanContext::RenderFrame() {
         return;
     }
 
+	VkSemaphore renderFinishedSemaphore = m_RenderFinishedSemaphores[imageIndex];
+
 
     // Reset command buffer.
     vkResetCommandBuffer(m_CommandBuffer, 0);
@@ -314,6 +327,7 @@ void OVulkanContext::RenderFrame() {
     // Begin recording.
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
     result = vkBeginCommandBuffer(m_CommandBuffer, &beginInfo);
 
@@ -326,16 +340,18 @@ void OVulkanContext::RenderFrame() {
     VkImage swapchainImage = m_SwapchainImages[imageIndex];
 
 
+	VkImageLayout oldLayout = m_SwapchainImageLayouts[imageIndex];
     // PRESENT -> TRANSFER_DST
-    TransitionImage(m_CommandBuffer, swapchainImage, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    TransitionImage(m_CommandBuffer, swapchainImage, oldLayout, VK_IMAGE_LAYOUT_GENERAL);
 
+	m_SwapchainImageLayouts[imageIndex] = VK_IMAGE_LAYOUT_GENERAL;
 
     // Blue!
     VkClearColorValue clearColor{};
 
-    clearColor.float32[0] = 0.0f;
+    clearColor.float32[0] = 1.0f;
     clearColor.float32[1] = 0.0f;
-    clearColor.float32[2] = 1.0f;
+    clearColor.float32[2] = 0.0f;
     clearColor.float32[3] = 1.0f;
 
 
@@ -350,11 +366,14 @@ void OVulkanContext::RenderFrame() {
     range.layerCount = 1;
 
 
-    vkCmdClearColorImage(m_CommandBuffer, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearColor, 1, &range);
+	vkCmdClearColorImage(m_CommandBuffer, swapchainImage, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range);
+
+    TransitionImage(m_CommandBuffer, swapchainImage, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
+	m_SwapchainImageLayouts[imageIndex] = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
 
     // TRANSFER_DST -> PRESENT
-    TransitionImage(m_CommandBuffer, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
 
     result = vkEndCommandBuffer(m_CommandBuffer);
@@ -365,34 +384,45 @@ void OVulkanContext::RenderFrame() {
     }
 
 
-    // Submit.
-    VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    // Submit
+	//
+	VkSemaphoreSubmitInfo waitSemaphoreInfo{
+		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+		.semaphore = m_ImageAvailableSemaphore,
+		.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+	};
 
-    VkSubmitInfo submitInfo{};
+	VkSemaphoreSubmitInfo signalSemaphoreInfo{
+		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+		.semaphore = renderFinishedSemaphore,
+		.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+	};
 
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	VkCommandBufferSubmitInfo cmdSubmitInfo{
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+		.commandBuffer = m_CommandBuffer
+	};
 
-    submitInfo.waitSemaphoreCount = 1;
+	VkSubmitInfo2 submitInfo = {
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
 
-    submitInfo.pWaitSemaphores = &m_ImageAvailableSemaphore;
+		.waitSemaphoreInfoCount = 1,
+		.pWaitSemaphoreInfos = &waitSemaphoreInfo,
 
-    submitInfo.pWaitDstStageMask = &waitStage;
+		.commandBufferInfoCount = 1,
+		.pCommandBufferInfos = &cmdSubmitInfo,
 
-    submitInfo.commandBufferCount = 1;
+		.signalSemaphoreInfoCount = 1,
+		.pSignalSemaphoreInfos = &signalSemaphoreInfo,
+	};
 
-    submitInfo.pCommandBuffers = &m_CommandBuffer;
-
-    submitInfo.signalSemaphoreCount = 1;
-
-    submitInfo.pSignalSemaphores = &m_RenderFinishedSemaphore;
-
-
-    result = vkQueueSubmit(graphicsQueue, 1, &submitInfo, m_InFlightFence);
+	result = vkQueueSubmit2(graphicsQueue, 1, &submitInfo, m_InFlightFence);
 
     if (result != VK_SUCCESS) {
-        ORION_ERROR("Failed to submit command buffer");
+        ORION_ERROR("Failed to Submit Command Buffer");
         return;
     }
+
 
 
     // Present.
@@ -402,7 +432,7 @@ void OVulkanContext::RenderFrame() {
 
     presentInfo.waitSemaphoreCount = 1;
 
-    presentInfo.pWaitSemaphores = &m_RenderFinishedSemaphore;
+    presentInfo.pWaitSemaphores = &renderFinishedSemaphore;
 
     presentInfo.swapchainCount = 1;
 
@@ -419,6 +449,35 @@ void OVulkanContext::RenderFrame() {
 }
 
 void OVulkanContext::Shutdown() {
+
+	vkDeviceWaitIdle(m_Device);
+
+	if(m_ImageAvailableSemaphore != VK_NULL_HANDLE)
+	{
+		vkDestroySemaphore(m_Device, m_ImageAvailableSemaphore, nullptr);
+	}
+
+	if(!m_RenderFinishedSemaphores.empty()){
+		for(auto& semaphore: m_RenderFinishedSemaphores)
+		{
+			vkDestroySemaphore(m_Device, semaphore, nullptr);
+		}
+	}
+
+	if(m_InFlightFence != VK_NULL_HANDLE)
+	{
+		vkDestroyFence(m_Device, m_InFlightFence, nullptr);
+	}
+
+	if(m_CommandBuffer != VK_NULL_HANDLE)
+	{
+		vkFreeCommandBuffers(m_Device, m_CommandPool, 1, &m_CommandBuffer);
+	}
+
+	if(m_CommandPool != VK_NULL_HANDLE)
+	{
+		vkDestroyCommandPool(m_Device, m_CommandPool, nullptr);
+	}
 
     if (!m_SwapchainImageViews.empty()) {
         for (auto imageView : m_SwapchainImageViews) {

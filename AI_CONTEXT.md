@@ -1,618 +1,858 @@
 Orion Engine — AI Development Context
 Project Overview
+Orion Engine is a C++20 Vulkan game-engine project currently in the early renderer-foundation stage.
 
-Orion Engine is a Vulkan-based game engine written in C++.
+The project is NOT yet a complete game engine. The current milestone is:
 
-The project is currently in the early foundation/setup stage. The goal is to build a clean, modular game engine rather than putting everything into a single renderer or application class.
+Build a minimal modern Vulkan renderer capable of drawing the first triangle.
 
-The engine name is:
+The immediate goal is:
 
-Orion Engine
+Window
+↓
+Vulkan Instance
+↓
+Surface
+↓
+Physical Device
+↓
+Logical Device
+↓
+Swapchain
+↓
+Shader Modules
+↓
+Pipeline Layout
+↓
+Graphics Pipeline
+↓
+Command Buffer
+↓
+Dynamic Rendering
+↓
+vkCmdDraw()
+↓
+Present
 
-
-The code uses an O prefix for engine classes, for example:
-
-OApplication
-OVulkanContext
-OLog
-
-
-The project also uses the Orion namespace.
+Do not jump ahead into ECS, physics, scripting, editor UI, networking, animation, etc. until the basic renderer is stable.
 
 Current Technology Stack
-
-The project currently uses:
-
-C++
+C++20
 CMake
-GLFW
 Vulkan
-Vulkan Bootstrap (vk-bootstrap)
+GLFW
+vk-bootstrap
 GLM
 spdlog
-
-Dependencies are stored in the repository through Git submodules/vendor directories.
-
-Current vendor structure is approximately:
-
-vendor/
-├── glfw/
-├── glm/
-├── spdlog/
-└── vkb/
-
-
-The project should be cloneable using:
-
-git clone --recurse-submodules <repository-url>
-
-
-After cloning with submodules, the project should be ready to configure and build, assuming the system has the required Vulkan environment and build tools.
+Dependencies are currently stored as git submodules under vendor/.
 
 Current Project Structure
-
-Current source files are approximately:
-
-src/
-├── Engine/
-│   ├── OApplication.h
-│   ├── OApplication.cpp
-│   ├── OVulkanContext.h
-│   ├── OVulkanContext.cpp
-│   ├── OLog.h
-│   └── OLog.cpp
+Orion-Engine/
+├── src/
+│   ├── Engine/
+│   │   ├── OApplication.h
+│   │   ├── OApplication.cpp
+│   │   ├── OVulkanContext.h
+│   │   ├── OVulkanContext.cpp
+│   │   ├── OLog.h
+│   │   └── OLog.cpp
+│   │
+│   └── main.cpp
 │
-└── main.cpp
-
-
-The project will eventually be expanded into more engine modules.
-
-Potential future structure:
-
-src/
-├── Engine/
-│   ├── Core/
-│   ├── Renderer/
-│   ├── Scene/
-│   ├── Math/
-│   ├── Input/
-│   ├── Assets/
-│   ├── Utils/
-│   └── Platform/
+├── vendor/
+│   ├── glfw/
+│   ├── glm/
+│   ├── spdlog/
+│   └── vkb/
 │
-└── main.cpp
+├── CMakeLists.txt
+├── .gitmodules
+├── AI_CONTEXT.md
+└── README.md
 
-OApplication
+Planned renderer files:
 
-OApplication is responsible for:
+src/Engine/
+├── OVulkanPipeline.h
+├── OVulkanPipeline.cpp
+├── ORenderer.h
+└── ORenderer.cpp
 
-Initializing GLFW
-Creating the GLFW window
-Creating/owning the Vulkan context
-Running the main application loop
-Cleaning everything up
+Planned shader files:
 
-The application currently creates a:
+assets/
+└── shaders/
+├── triangle.vert
+├── triangle.frag
+├── triangle.vert.spv
+└── triangle.frag.spv
 
-1280x720
+Existing Architecture
+Current high-level ownership:
 
+main
+│
+└── OApplication
+│
+├── GLFW
+├── Window
+├── OVulkanContext
+│     ├── Vulkan Instance
+│     ├── Surface
+│     ├── Physical Device
+│     ├── Logical Device
+│     ├── Graphics Queue
+│     └── Swapchain
+│
+└── OVulkanPipeline
+├── Shader Modules
+├── Pipeline Layout
+└── Graphics Pipeline
 
-window named:
+Keep OVulkanContext focused on Vulkan context/device/swapchain-level responsibilities.
 
-Orion Engine
+Do NOT turn OVulkanContext into a giant renderer class.
 
+Current Vulkan Context
+OVulkanContext currently handles:
 
-GLFW is configured with:
+Vulkan instance creation
+Validation layers/debug callback
+Surface creation
+Physical device selection
+Logical device creation
+Graphics queue acquisition
+Swapchain creation
+Swapchain image acquisition
+Swapchain image-view acquisition
+Vulkan resource shutdown
+The current initialization sequence is:
 
-glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+CreateInstance()
+↓
+CreateSurface()
+↓
+ChoosePhysicalDevice()
+↓
+CreateDevice()
+↓
+CreateSwapchain()
+↓
+CreateImageViews()
 
+Note:
 
-because Vulkan is being used instead of OpenGL.
+CreateImageViews() currently returns true without doing actual work, while CreateSwapchain() obtains image views using vk-bootstrap:
 
-The current application loop is essentially:
+m_SwapchainImageViews = VKB_Swapchain.get_image_views().value();
 
-while (!glfwWindowShouldClose(m_Window))
+This is currently functional but the naming/ownership should eventually be cleaned up.
+
+vk-bootstrap's swapchain image views still need to be explicitly destroyed by Orion.
+
+Vulkan Version
+The current code requires Vulkan 1.4:
+
+.require_api_version(1, 4)
+
+and physical-device selection currently requires:
+
+.set_minimum_version(1, 4)
+
+This is intentionally retained for now.
+
+Potential future change:
+
+Required Vulkan:
+1.3
+
+Optional:
+1.4 features
+
+Do NOT change this during the first graphics-pipeline implementation unless necessary.
+
+Swapchain
+Current swapchain configuration requests:
+
+Format:
+VK_FORMAT_B8G8R8A8_UNORM
+
+Color space:
+VK_COLORSPACE_SRGB_NONLINEAR_KHR
+
+Present mode preference:
+VK_PRESENT_MODE_MAILBOX_KHR
+
+The actual selected swapchain format must be queried from vk-bootstrap rather than assumed.
+
+Expose:
+
+VkFormat GetSwapchainImageFormat() const
 {
-    glfwPollEvents();
+return VKB_Swapchain.image_format;
 }
 
+Also expose:
 
-The application owns:
+VkExtent2D GetSwapchainExtent() const
+{
+return VKB_Swapchain.extent;
+}
+
+And:
+
+const std::vector<VkImageView>& GetSwapchainImageViews() const
+{
+return m_SwapchainImageViews;
+}
+
+These will be needed by the renderer.
+
+Immediate Milestone
+Graphics Pipeline
+The immediate task is implementing:
+
+OVulkanPipeline
+
+It should initially own:
+
+VkDevice m_Device;
+
+VkShaderModule m_VertexShader;
+VkShaderModule m_FragmentShader;
+
+VkPipelineLayout m_PipelineLayout;
+
+VkPipeline m_Pipeline;
+
+Public API:
+
+class OVulkanPipeline
+{
+public:
+OVulkanPipeline() = default;
+~OVulkanPipeline() = default;
+
+    bool Init(
+        VkDevice device,
+        VkFormat colorFormat
+    );
+
+    void Shutdown();
+
+    VkPipeline GetPipeline() const;
+    VkPipelineLayout GetPipelineLayout() const;
+
+private:
+bool CreateShaderModules();
+bool CreatePipelineLayout();
+bool CreateGraphicsPipeline(VkFormat colorFormat);
+
+    VkShaderModule CreateShaderModule(
+        const std::vector<char>& code
+    );
+};
+
+Shader Strategy
+For the first renderer milestone, use a hard-coded triangle.
+
+Do NOT introduce vertex buffers yet.
+
+The vertex shader uses gl_VertexIndex.
+
+triangle.vert
+#version 450
+
+vec2 positions[3] = vec2[](
+vec2( 0.0, -0.5),
+vec2( 0.5,  0.5),
+vec2(-0.5,  0.5)
+);
+
+vec3 colors[3] = vec3[](
+vec3(1.0, 0.0, 0.0),
+vec3(0.0, 1.0, 0.0),
+vec3(0.0, 0.0, 1.0)
+);
+
+layout(location = 0) out vec3 fragColor;
+
+void main()
+{
+gl_Position = vec4(
+positions[gl_VertexIndex],
+0.0,
+1.0
+);
+
+    fragColor = colors[gl_VertexIndex];
+}
+
+triangle.frag
+#version 450
+
+layout(location = 0) in vec3 fragColor;
+
+layout(location = 0) out vec4 outColor;
+
+void main()
+{
+outColor = vec4(fragColor, 1.0);
+}
+
+Compile to SPIR-V:
+
+glslc assets/shaders/triangle.vert \
+-o assets/shaders/triangle.vert.spv
+
+glslc assets/shaders/triangle.frag \
+-o assets/shaders/triangle.frag.spv
+
+Initially it is acceptable to commit the generated .spv files.
+
+Later CMake should automate shader compilation.
+
+Graphics Pipeline Configuration
+The first graphics pipeline should use:
+
+Shader stages
+Vertex:
+triangle.vert.spv
+
+Fragment:
+triangle.frag.spv
+
+Vertex input
+No vertex buffers yet:
+
+vertexBindingDescriptionCount = 0;
+vertexAttributeDescriptionCount = 0;
+
+Input assembly
+VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
+
+Rasterization
+polygonMode = VK_POLYGON_MODE_FILL
+cullMode = VK_CULL_MODE_NONE
+frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE
+lineWidth = 1.0f
+
+Disable depth/stencil for the first triangle.
+
+Multisampling
+VK_SAMPLE_COUNT_1_BIT
+
+Color blending
+Initially disabled:
+
+blendEnable = VK_FALSE;
+
+Color write mask:
+
+VK_COLOR_COMPONENT_R_BIT |
+VK_COLOR_COMPONENT_G_BIT |
+VK_COLOR_COMPONENT_B_BIT |
+VK_COLOR_COMPONENT_A_BIT
+
+Dynamic State
+Viewport and scissor should be dynamic:
+
+VK_DYNAMIC_STATE_VIEWPORT
+VK_DYNAMIC_STATE_SCISSOR
+
+This avoids coupling the pipeline to a specific viewport size.
+
+During command recording:
+
+vkCmdSetViewport(...)
+vkCmdSetScissor(...)
+
+Dynamic Rendering
+Use modern Vulkan dynamic rendering.
+
+Do NOT introduce VkRenderPass or VkFramebuffer for the first renderer.
+
+Use:
+
+VkPipelineRenderingCreateInfo
+
+with:
+
+colorAttachmentCount = 1;
+pColorAttachmentFormats = &colorFormat;
+depthAttachmentFormat = VK_FORMAT_UNDEFINED;
+stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
+
+The graphics pipeline's pNext should point to the VkPipelineRenderingCreateInfo.
+
+The color format must be the actual swapchain format obtained from:
+
+VKB_Swapchain.image_format
+
+Pipeline Layout
+The first pipeline has no descriptors or push constants.
+
+Therefore the initial pipeline layout is empty:
+
+VkPipelineLayoutCreateInfo layoutInfo{};
+layoutInfo.sType =
+VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+
+layoutInfo.setLayoutCount = 0;
+layoutInfo.pushConstantRangeCount = 0;
+
+Later this will evolve toward:
+
+Pipeline Layout
+├── Frame descriptor set
+├── Material descriptor set
+├── Object descriptor set
+└── Push constants
+
+Do not implement those yet.
+
+Pipeline Lifetime
+Destruction order must be:
+
+VkPipeline
+↓
+VkPipelineLayout
+↓
+Vertex Shader Module
+↓
+Fragment Shader Module
+
+The graphics pipeline must be destroyed BEFORE VkDevice.
+
+Therefore application shutdown should be:
+
+OVulkanPipeline::Shutdown()
+↓
+OVulkanPipeline destroyed
+↓
+OVulkanContext::Shutdown()
+↓
+VkDevice destroyed
+
+Never destroy the Vulkan device while a pipeline still references it.
+
+Application Ownership
+OApplication should own:
 
 std::unique_ptr<OVulkanContext> m_VulkanContext;
+std::unique_ptr<OVulkanPipeline> m_VulkanPipeline;
 
+Initialization order:
+
+GLFW
+↓
+Window
+↓
 OVulkanContext
+↓
+OVulkanPipeline
 
-OVulkanContext is responsible for the high-level Vulkan initialization.
+Pipeline initialization:
 
-Current responsibilities:
+m_VulkanPipeline =
+std::make_unique<OVulkanPipeline>();
 
-Store the GLFW window
-Create the Vulkan instance through Vulkan Bootstrap
-Store the Vulkan instance
-Store the Vulkan debug messenger
-Destroy the Vulkan instance during shutdown
-
-Current members include:
-
-GLFWwindow* m_Window = nullptr;
-
-vkb::Instance m_Instance;
-
-VkInstance m_VkInstance = VK_NULL_HANDLE;
-VkDebugUtilsMessengerEXT m_DebugMessenger = VK_NULL_HANDLE;
-
-
-Vulkan Bootstrap is being used specifically to avoid manually writing a large amount of Vulkan instance/device initialization boilerplate.
-
-Vulkan Bootstrap
-
-The project uses Vulkan Bootstrap instead of manually implementing every part of Vulkan instance setup.
-
-The intended initialization is roughly:
-
-vkb::InstanceBuilder builder;
-
-auto instanceResult =
-    builder
-        .set_app_name("Orion Engine")
-        .set_engine_name("Orion Engine")
-        .request_validation_layers()
-        .require_api_version(1, 3, 0)
-        .build();
-
-
-The exact API for the custom debug callback depends on the installed vk-bootstrap version.
-
-Do NOT blindly assume that:
-
-.set_debug_callback(...)
-
-
-exists.
-
-If it does not compile, inspect the version/commit of the vendored vk-bootstrap before changing the architecture.
-
-Logging
-
-The project uses spdlog.
-
-A custom wrapper called:
-
-OLog
-
-
-was created so that the rest of the engine does not need to interact directly with spdlog everywhere.
-
-OLog.h currently has:
-
-#pragma once
-
-#include <memory>
-#include <spdlog/logger.h>
-
-namespace Orion
+if (!m_VulkanPipeline->Init(
+m_VulkanContext->GetDevice(),
+m_VulkanContext->GetSwapchainImageFormat()))
 {
-    class OLog
-    {
-    public:
-        static void Init();
-
-        static std::shared_ptr<spdlog::logger>& GetLogger()
-        {
-            return s_Logger;
-        }
-
-    private:
-        static std::shared_ptr<spdlog::logger> s_Logger;
-    };
-    }
-
-#define ORION_TRACE(...)    ::Orion::OLog::GetLogger()->trace(__VA_ARGS__)
-#define ORION_INFO(...)     ::Orion::OLog::GetLogger()->info(__VA_ARGS__)
-#define ORION_WARN(...)     ::Orion::OLog::GetLogger()->warn(__VA_ARGS__)
-#define ORION_ERROR(...)    ::Orion::OLog::GetLogger()->error(__VA_ARGS__)
-#define ORION_CRITICAL(...) ::Orion::OLog::GetLogger()->critical(__VA_ARGS__)
-
-
-OLog.cpp defines the static member:
-
-std::shared_ptr<spdlog::logger> OLog::s_Logger = nullptr;
-
-
-and initializes the logger with:
-
-spdlog::set_pattern("[%T] [%^%l%$] %v");
-
-s_Logger = spdlog::stdout_color_mt("ORION");
-s_Logger->set_level(spdlog::level::trace);
-
-Important Logger Bug That Was Fixed
-
-Initially OLog.cpp incorrectly contained:
-
-std::shared_ptr<spdlog::logger> s_Logger;
-
-
-This created:
-
-Orion::s_Logger
-
-
-instead of defining:
-
-Orion::OLog::s_Logger
-
-
-The correct definition is:
-
-std::shared_ptr<spdlog::logger> OLog::s_Logger = nullptr;
-
-
-This was causing linker errors such as:
-
-undefined reference to `Orion::OLog::s_Logger'
-undefined reference to `Orion::OLog::Init()'
-
-
-The issue was eventually also related to CMake not recompiling the newly added OLog.cpp.
-
-Deleting the build directory and regenerating CMake fixed the stale build issue.
-
-If new .cpp files are added and the linker says their functions are undefined, first verify that the corresponding .cpp.o appears in the linker command.
-
-CMake
-
-The project uses CMake.
-
-A useful approach for automatically finding source files is:
-
-file(GLOB_RECURSE ORION_SOURCES CONFIGURE_DEPENDS
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/*.h
-)
-
-
-This avoids manually adding every .cpp and .h file to CMakeLists.txt.
-
-CONFIGURE_DEPENDS is preferred because it helps CMake detect newly added files.
-
-If CMake gets into a stale state, clean the build:
-
-rm -rf build
-cmake -B build
-cmake --build build
-
-
-The user specifically found that doing a clean CMake build fixed the missing OLog.cpp linker problem.
-
-Vulkan Debug Messenger Goal
-
-The current goal is to replace Vulkan Bootstrap's default debug messenger behavior with a custom Vulkan debug callback that routes validation messages through OLog/spdlog.
-
-The desired architecture is:
-
-Vulkan Validation Layers
-        |
-        v
-Custom Vulkan Debug Callback
-        |
-        v
-OLog
-        |
-        v
-spdlog
-        |
-        v
-Terminal
-
-
-The user explicitly wants to replace the default Bootstrap debug messenger.
-
-Therefore, do NOT use:
-
-.use_default_debug_messenger()
-
-
-when implementing the custom callback.
-
-Validation layers should still be enabled:
-
-.request_validation_layers()
-
-
-Validation layers and the debug messenger are separate concepts.
-
-The callback should map Vulkan severity to Orion logging levels:
-
-Vulkan VERBOSE  -> ORION_TRACE
-Vulkan INFO     -> ORION_INFO
-Vulkan WARNING  -> ORION_WARN
-Vulkan ERROR    -> ORION_ERROR
-
-
-The callback should return:
-
-VK_FALSE
-
-
-so Vulkan does not abort the operation.
-
-Initialization Order
-
-The logger must be initialized before Vulkan creates its debug messenger because the callback may immediately receive messages.
-
-The intended order is:
-
-main()
- |
- +-- OLog::Init()
- |
- +-- OApplication
-       |
-       +-- GLFW initialization
-       |
-       +-- Window creation
-       |
-       +-- OVulkanContext
-             |
-             +-- Vulkan instance
-             |
-             +-- Custom debug messenger
-             |
-             +-- Vulkan validation messages -> OLog
-
-
-Therefore main.cpp should initialize the logger first:
-
-#include "Engine/OApplication.h"
-#include "Engine/OLog.h"
-
-int main()
-{
-    Orion::OLog::Init();
-
-    ORION_INFO("Starting Orion Engine...");
-
-    Orion::OApplication app;
-    app.Run();
-
-    ORION_INFO("Orion Engine shutting down.");
-
-    return 0;
+ORION_ERROR(
+"Failed to Initialize Graphics Pipeline"
+);
+
+    return false;
 }
 
-Current State
+Shutdown:
 
-Completed:
+if (m_VulkanPipeline) {
+m_VulkanPipeline->Shutdown();
+m_VulkanPipeline.reset();
+}
 
-GLFW installed
-GLM installed
-Vulkan configured
-Vulkan Bootstrap installed
-spdlog installed
-CMake project configured
-OApplication created
-OVulkanContext created
-OLog created
-Basic logging macros created
-Vulkan validation layers enabled/requested
-Goal established to route Vulkan validation messages through custom OLog
-CMake source-file management improved
-Basic window initialization works
-Vulkan instance initialization works
+if (m_VulkanContext) {
+m_VulkanContext->Shutdown();
+m_VulkanContext.reset();
+}
 
-The project is currently at the early Vulkan initialization stage.
+Shader Loading
+Current first implementation can load SPIR-V at runtime using a helper:
 
-Next Vulkan Roadmap
+std::vector<char> ReadBinaryFile(
+const std::string& filename
+);
 
-The next implementation steps should be:
+The shader paths can initially be:
 
-1. Custom Vulkan debug messenger
-2. GLFW VkSurfaceKHR
-3. Physical device selection
-4. Queue family discovery
-5. Logical device creation
-6. Graphics queue
-7. Present queue
-8. Swapchain
-9. Swapchain images
-10. Image views
-11. Depth buffer
-12. Render pass / dynamic rendering
-13. Graphics pipeline
-14. Shader loading
-15. Command pool
-16. Command buffers
-17. Synchronization
-18. Clear screen
-19. First triangle
+assets/shaders/triangle.vert.spv
+assets/shaders/triangle.frag.spv
 
+This is acceptable for the first milestone.
 
-Do not jump directly into a large engine architecture before getting the Vulkan renderer working.
+However, relative paths are fragile.
 
-The immediate goal should be:
+Eventually shader paths should be resolved relative to an asset root or executable/project root.
 
-GLFW Window
-      |
-      v
-Vulkan Instance
-      |
-      v
-Validation + Custom Logger
-      |
-      v
-Surface
-      |
-      v
-GPU
-      |
-      v
-Logical Device
-      |
-      v
-Swapchain
-      |
-      v
-Clear Screen
-      |
-      v
-Triangle
+Do not over-engineer this yet.
 
-Future Renderer Architecture
+Current Renderer Roadmap
+Implement in this order.
 
-As the renderer grows, avoid putting every Vulkan object into OVulkanContext.
+Phase 1 — Graphics Pipeline
+[ ] Add OVulkanPipeline.h
+[ ] Add OVulkanPipeline.cpp
+[ ] Add shader loading
+[ ] Add triangle.vert
+[ ] Add triangle.frag
+[ ] Compile shaders to SPIR-V
+[ ] Create shader modules
+[ ] Create pipeline layout
+[ ] Create graphics pipeline
+[ ] Destroy pipeline correctly
 
-The intended direction is to split responsibilities into classes such as:
+Phase 2 — Frame Infrastructure
+[ ] Command pool
+[ ] Command buffers
+[ ] Fences
+[ ] Image-available semaphores
+[ ] Render-finished semaphores
+[ ] Per-frame resources
 
-Renderer/
+Recommended initial frame count:
+
+constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
+
+Phase 3 — Actual Rendering
+Command sequence:
+
+Acquire swapchain image
+↓
+Begin command buffer
+↓
+Transition image:
+PRESENT_SRC_KHR
+↓
+COLOR_ATTACHMENT_OPTIMAL
+↓
+vkCmdBeginRendering()
+↓
+vkCmdBindPipeline()
+↓
+vkCmdSetViewport()
+↓
+vkCmdSetScissor()
+↓
+vkCmdDraw(3, 1, 0, 0)
+↓
+vkCmdEndRendering()
+↓
+Transition image:
+COLOR_ATTACHMENT_OPTIMAL
+↓
+PRESENT_SRC_KHR
+↓
+End command buffer
+↓
+Submit
+↓
+Present
+
+Phase 4 — Swapchain Recreation
+Eventually:
+
+Window resize
+↓
+Wait for non-zero framebuffer dimensions
+↓
+Wait for device idle
+↓
+Destroy swapchain-dependent resources
+↓
+Recreate swapchain
+↓
+Recreate image views
+↓
+Recreate graphics pipeline if format changed
+
+Current window is non-resizable, so this can wait until after the first triangle.
+
+Phase 5 — Real Geometry
+After the hard-coded triangle works:
+
+[ ] Vertex buffer
+[ ] Index buffer
+[ ] Vertex structure
+[ ] Vertex input bindings
+[ ] Vertex attributes
+[ ] Mesh abstraction
+
+Phase 6 — GPU Resources
+[ ] Buffer abstraction
+[ ] Image abstraction
+[ ] ImageView abstraction
+[ ] Sampler
+[ ] Texture
+[ ] GPU memory allocator
+
+Phase 7 — Renderer Architecture
+Eventually move toward:
+
+ORenderer
+│
 ├── OVulkanContext
-├── OVulkanDevice
-├── OVulkanSwapchain
 ├── OVulkanPipeline
-├── OVulkanCommandPool
-├── OVulkanBuffer
-├── OVulkanImage
-├── OVulkanTexture
-└── OVulkanRenderer
+├── Frame resources
+├── Command pools
+├── Synchronization
+├── Resource management
+└── Rendering interface
 
+Longer-term architecture:
 
-Conceptually:
+Orion Engine
+│
+├── Core
+│   ├── Application
+│   ├── Log
+│   ├── Assert
+│   ├── Time
+│   └── Types
+│
+├── Platform
+│   └── Window
+│
+├── Renderer
+│   ├── Renderer
+│   ├── RenderDevice
+│   ├── Pipeline
+│   ├── Buffer
+│   ├── Image
+│   ├── Texture
+│   ├── Shader
+│   └── CommandBuffer
+│
+├── Vulkan
+│   ├── VulkanInstance
+│   ├── VulkanDevice
+│   ├── VulkanSwapchain
+│   ├── VulkanPipeline
+│   ├── VulkanBuffer
+│   └── VulkanImage
+│
+├── Scene
+├── Assets
+├── Input
+└── Math
 
-OApplication
-      |
-      v
-OVulkanRenderer
-      |
-      +--- OVulkanContext
-      +--- OVulkanDevice
-      +--- OVulkanSwapchain
-      +--- OVulkanPipeline
-      +--- ...
+Do NOT implement this entire architecture now.
 
+Grow toward it incrementally.
 
-OVulkanContext should remain relatively focused on Vulkan instance/context-level functionality rather than becoming a giant class containing the entire renderer.
+Important Current Issues / Technical Debt
+1. CMake minimum version
+   Current CMake requires a very recent CMake version.
 
-Future Libraries
+Review whether:
 
-Potential libraries discussed for later stages:
+cmake_minimum_required(VERSION 4.4)
 
-VMA (Vulkan Memory Allocator) for GPU memory allocation
-stb_image for texture loading
-fastgltf or tinygltf for glTF models
-Dear ImGui for editor/debug UI
-spdlog for logging
+is actually necessary.
 
-Do not add all of these immediately. Add dependencies when the corresponding engine feature needs them.
+A lower supported version would improve portability.
 
-Engine Philosophy
+Do not change blindly; verify dependency requirements first.
 
-The project should prioritize:
+2. C++ standard discrepancy
+   README currently describes C++17+, but CMake requires:
 
-Clean architecture
-Small focused classes
-Explicit ownership of Vulkan resources
-RAII where appropriate
-Good logging
-Validation layers during development
-Minimal unnecessary abstraction
-Learning Vulkan fundamentals while building the engine
-Avoiding giant source files
-Keeping renderer components modular
+CMAKE_CXX_STANDARD 20
 
-The user is actively learning Vulkan, so explain important Vulkan concepts rather than hiding everything behind abstractions.
+The actual project requirement should eventually be documented consistently as C++20.
 
-Vulkan Bootstrap is being used to reduce repetitive initialization boilerplate, but the user still wants to understand what Vulkan is doing.
+3. GLOB_RECURSE
+   Current source discovery uses:
 
-Immediate Task For Next AI
+file(GLOB_RECURSE ...)
 
-The most immediate task is:
+If retained, prefer:
 
-Finish the custom Vulkan debug messenger integration
+file(GLOB_RECURSE ORION_SOURCES
+CONFIGURE_DEPENDS
+...
+)
 
-The goal is:
+Eventually explicit source lists or per-directory CMake files may be preferable.
 
-Vulkan validation message
-        ↓
-Custom callback
-        ↓
-ORION_TRACE / INFO / WARN / ERROR
-        ↓
-spdlog
+4. .gitmodules
+   There is an unusual/possibly stale submodule entry under:
 
+build/vendor/spdlog
 
-The default vk-bootstrap debug messenger should NOT be used.
+build/ should normally contain generated build artifacts and should not contain project dependencies.
 
-Before providing code for the callback, determine the exact version/commit of the vendored vk-bootstrap if necessary, because the custom debug callback API may differ between versions.
+Investigate and remove the stale entry if confirmed unnecessary.
 
-After that, move to:
+5. Initialization error handling
+   Current OApplication construction calls Init() internally.
 
-VkSurfaceKHR
+This means initialization failure does not currently propagate cleanly through object construction.
 
+Current conceptual flow:
 
-created from the existing GLFW window.
+OApplication()
+↓
+Init()
+↓
+failure
+↓
+object still exists
 
-Then continue toward physical device and logical device creation.
+Eventually change toward one of:
 
-Useful Commands
+factory/result-based initialization
 
-Clean build:
+or:
 
-rm -rf build
-cmake -B build
-cmake --build build
+OApplication::OApplication()
+{
+if (!Init())
+throw std::runtime_error(...);
+}
 
+Do not prioritize this over getting the first triangle rendered.
 
-Clone project with all dependencies:
+6. Vulkan handles
+   Use:
 
-git clone --recurse-submodules <repository-url>
+VK_NULL_HANDLE
 
+for Vulkan handle invalidation rather than:
 
-Initialize submodules after a normal clone:
+nullptr
 
-git submodule update --init --recursive
+Example:
+
+m_Instance = VK_NULL_HANDLE;
+
+Design Principles
+Keep these principles while developing Orion.
+
+1. Don't abstract Vulkan too early
+   First understand the Vulkan concepts directly.
+
+Then wrap repeated patterns.
+
+2. Keep ownership obvious
+   Every Vulkan resource should have one clear owner.
+
+3. Destroy in reverse dependency order
+   Example:
+
+Pipeline
+↓
+Pipeline Layout
+↓
+Device
+
+4. Prefer RAII eventually
+   The current explicit Init() / Shutdown() style is acceptable during the early learning phase.
+
+As the engine grows, consider RAII wrappers.
+
+5. Keep OVulkanContext small
+   It should not become:
+
+everything Vulkan
+
+6. Don't build features ahead of the renderer
+   The next meaningful milestone is the triangle.
+
+7. Use validation layers aggressively
+   Any Vulkan validation error should be treated as important.
+
+Do not suppress validation errors just to get the triangle running.
+
+Immediate Task For Next Development Session
+Continue from:
+
+Implementing OVulkanPipeline and creating the first Vulkan graphics pipeline.
+
+First verify:
+
+[ ] OVulkanContext exposes VkDevice
+[ ] OVulkanContext exposes swapchain format
+[ ] OVulkanContext exposes swapchain extent
+[ ] OVulkanContext exposes swapchain image views
+[ ] OVulkanPipeline exists
+[ ] Triangle shaders exist
+[ ] SPIR-V shaders compile
+[ ] Shader modules are created
+[ ] Pipeline layout is created
+[ ] Graphics pipeline is created
+[ ] Pipeline is destroyed before VkDevice
+
+At this stage, do not expect anything to appear on screen yet.
+
+The next major task after pipeline creation is:
+
+Build command pools, command buffers, synchronization, dynamic rendering, and finally issue vkCmdDraw(3, 1, 0, 0).
+
+Expected first visual milestone:
+
+┌─────────────────────────────┐
+│                             │
+│            🔺               │
+│         RGB TRIANGLE        │
+│                             │
+└─────────────────────────────┘
+
+The first triangle should be implemented without a vertex buffer using gl_VertexIndex.
+
+After the triangle works, introduce vertex/index buffers and begin building the actual renderer abstraction.
 
 Current Mental Model
+The most important architecture to preserve is:
 
-The engine currently looks like:
-
-                 Orion Engine
-                      |
                  OApplication
-                      |
-              +-------+-------+
-              |               |
-           GLFW Window    OLog/spdlog
-              |
-              v
-       OVulkanContext
-              |
-              v
-       Vulkan Bootstrap
-              |
-              v
-       Vulkan Instance
-              |
-              v
-   Custom Debug Messenger
-              |
-              v
-          OLog/spdlog
-
-
-The next major expansion is:
-
-OVulkanContext
-      |
-      +-- Surface
-      |
-      +-- Physical Device
-      |
-      +-- Logical Device
-      |
-      +-- Queues
-      |
-      +-- Swapchain
-
-
-This document represents the current state and decisions of Orion Engine and should be used as context when continuing development with another AI agent.
+                      │
+                      ▼
+              OVulkanContext
+                      │
+          ┌───────────┴───────────┐
+          │                       │
+       VkDevice               Swapchain
+          │                       │
+          └───────────┬───────────┘
+                      │
+                      ▼
+              OVulkanPipeline
+                      │
+             ┌────────┴────────┐
+             │                 │
+        Vertex Shader     Fragment Shader
+             │                 │
+             └────────┬────────┘
+                      │
+                 VkPipeline
+                      │
+                      ▼
+                ORenderer
+                      │
+          ┌───────────┼───────────┐
+          │           │           │
+      Commands      Frames    Synchronization
+          │           │           │
+          └───────────┼───────────┘
+                      ▼
+               Dynamic Rendering
+                      │
+                      ▼
+                 vkCmdDraw()
+                      │
+                      ▼
+                   Present

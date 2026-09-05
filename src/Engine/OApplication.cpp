@@ -2,6 +2,8 @@
 #include "GLFW/glfw3.h"
 #include "OLog.h"
 #include "OVulkanContext.h"
+#include "OVulkanPipeline.h"
+#include <memory>
 
 namespace Orion {
 
@@ -33,6 +35,15 @@ bool OApplication::Init() {
         return false;
     }
 
+	m_Pipeline = std::make_unique<OVulkanPipeline>();
+
+	if(!m_Pipeline->Init(m_VulkanContext->GetDevice(), m_VulkanContext->GetSwapchainImageFormat(), *m_VulkanContext))
+	{
+		ORION_ERROR("Failed To create grpahics pipeline");
+		return false;
+
+	}
+
     return true;
 }
 
@@ -45,6 +56,13 @@ void OApplication::Run() {
 }
 
 void OApplication::Shutdown() {
+
+	if(m_Pipeline)
+	{
+		m_Pipeline->Shutdown();
+		m_Pipeline.reset();
+	}
+
     if (m_VulkanContext) {
         m_VulkanContext->Shutdown();
         m_VulkanContext.reset();
