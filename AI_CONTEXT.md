@@ -1,858 +1,740 @@
-Orion Engine — AI Development Context
-Project Overview
-Orion Engine is a C++20 Vulkan game-engine project currently in the early renderer-foundation stage.
 
-The project is NOT yet a complete game engine. The current milestone is:
+AI_CONTEXT.md
 
-Build a minimal modern Vulkan renderer capable of drawing the first triangle.
+```md
+# Orion Engine — AI Context
 
-The immediate goal is:
+## Project Overview
 
-Window
-↓
-Vulkan Instance
-↓
-Surface
-↓
+Orion Engine is a C++ game engine being developed from the ground up.
+
+The project is currently focused heavily on Vulkan rendering and low-level engine architecture.
+
+The primary purpose of the project is to understand engine architecture and modern graphics programming deeply while gradually building reusable engine systems.
+
+This document provides context for AI-assisted development.
+
+AI assistants should read this file before proposing architectural changes or modifying core systems.
+
+---
+
+# Core Philosophy
+
+Orion is a learning-driven engine project.
+
+The goal is not to hide complexity immediately.
+
+The goal is to understand the complexity first and then introduce abstractions that make the system easier to use without hiding important behavior.
+
+Priorities are:
+
+1. Correctness
+2. Understanding
+3. Debuggability
+4. Clear ownership
+5. Maintainability
+6. Performance
+7. Abstraction
+
+Do not optimize prematurely.
+
+Do not introduce large abstractions simply because they are common in other engines.
+
+Prefer small abstractions that are justified by repeated usage or clear ownership boundaries.
+
+---
+
+# Current Graphics API
+
+The renderer uses Vulkan.
+
+The project targets Vulkan 1.3 and currently relies on modern Vulkan functionality.
+
+Important Vulkan features include:
+
+- Vulkan 1.3
+- Synchronization 2
+- Dynamic Rendering
+- `vkQueueSubmit2`
+- Vulkan validation layers
+
+The renderer should continue moving toward modern Vulkan APIs instead of introducing legacy synchronization APIs unless there is a specific reason.
+
+---
+
+# Vulkan Initialization
+
+The current initialization flow is approximately:
+
+```text
+GLFW Window
+    ↓
+VkInstance
+    ↓
+VkSurfaceKHR
+    ↓
 Physical Device
-↓
+    ↓
 Logical Device
-↓
+    ↓
+Graphics Queue
+    ↓
 Swapchain
-↓
-Shader Modules
-↓
-Pipeline Layout
-↓
-Graphics Pipeline
-↓
-Command Buffer
-↓
-Dynamic Rendering
-↓
-vkCmdDraw()
-↓
-Present
+    ↓
+Swapchain Images
+    ↓
+Command Pool
+    ↓
+Command Buffers
+    ↓
+Synchronization Objects
 
-Do not jump ahead into ECS, physics, scripting, editor UI, networking, animation, etc. until the basic renderer is stable.
-
-Current Technology Stack
-C++20
-CMake
-Vulkan
-GLFW
-vk-bootstrap
-GLM
-spdlog
-Dependencies are currently stored as git submodules under vendor/.
-
-Current Project Structure
-Orion-Engine/
-├── src/
-│   ├── Engine/
-│   │   ├── OApplication.h
-│   │   ├── OApplication.cpp
-│   │   ├── OVulkanContext.h
-│   │   ├── OVulkanContext.cpp
-│   │   ├── OLog.h
-│   │   └── OLog.cpp
-│   │
-│   └── main.cpp
-│
-├── vendor/
-│   ├── glfw/
-│   ├── glm/
-│   ├── spdlog/
-│   └── vkb/
-│
-├── CMakeLists.txt
-├── .gitmodules
-├── AI_CONTEXT.md
-└── README.md
-
-Planned renderer files:
-
-src/Engine/
-├── OVulkanPipeline.h
-├── OVulkanPipeline.cpp
-├── ORenderer.h
-└── ORenderer.cpp
-
-Planned shader files:
-
-assets/
-└── shaders/
-├── triangle.vert
-├── triangle.frag
-├── triangle.vert.spv
-└── triangle.frag.spv
-
-Existing Architecture
-Current high-level ownership:
-
-main
-│
-└── OApplication
-│
-├── GLFW
-├── Window
-├── OVulkanContext
-│     ├── Vulkan Instance
-│     ├── Surface
-│     ├── Physical Device
-│     ├── Logical Device
-│     ├── Graphics Queue
-│     └── Swapchain
-│
-└── OVulkanPipeline
-├── Shader Modules
-├── Pipeline Layout
-└── Graphics Pipeline
-
-Keep OVulkanContext focused on Vulkan context/device/swapchain-level responsibilities.
-
-Do NOT turn OVulkanContext into a giant renderer class.
-
-Current Vulkan Context
-OVulkanContext currently handles:
+vk-bootstrap is currently used to simplify:
 
 Vulkan instance creation
-Validation layers/debug callback
-Surface creation
+Validation layer configuration
+Debug callback setup
 Physical device selection
 Logical device creation
-Graphics queue acquisition
 Swapchain creation
-Swapchain image acquisition
-Swapchain image-view acquisition
-Vulkan resource shutdown
-The current initialization sequence is:
+Do not replace vk-bootstrap without a strong architectural reason.
 
-CreateInstance()
-↓
-CreateSurface()
-↓
-ChoosePhysicalDevice()
-↓
-CreateDevice()
-↓
-CreateSwapchain()
-↓
-CreateImageViews()
+Vulkan Features
+The physical device selection currently requires Vulkan 1.3 features including:
 
-Note:
-
-CreateImageViews() currently returns true without doing actual work, while CreateSwapchain() obtains image views using vk-bootstrap:
-
-m_SwapchainImageViews = VKB_Swapchain.get_image_views().value();
-
-This is currently functional but the naming/ownership should eventually be cleaned up.
-
-vk-bootstrap's swapchain image views still need to be explicitly destroyed by Orion.
-
-Vulkan Version
-The current code requires Vulkan 1.4:
-
-.require_api_version(1, 4)
-
-and physical-device selection currently requires:
-
-.set_minimum_version(1, 4)
-
-This is intentionally retained for now.
-
-Potential future change:
-
-Required Vulkan:
-1.3
-
-Optional:
-1.4 features
-
-Do NOT change this during the first graphics-pipeline implementation unless necessary.
-
-Swapchain
-Current swapchain configuration requests:
-
-Format:
-VK_FORMAT_B8G8R8A8_UNORM
-
-Color space:
-VK_COLORSPACE_SRGB_NONLINEAR_KHR
-
-Present mode preference:
-VK_PRESENT_MODE_MAILBOX_KHR
-
-The actual selected swapchain format must be queried from vk-bootstrap rather than assumed.
-
-Expose:
-
-VkFormat GetSwapchainImageFormat() const
-{
-return VKB_Swapchain.image_format;
-}
-
-Also expose:
-
-VkExtent2D GetSwapchainExtent() const
-{
-return VKB_Swapchain.extent;
-}
-
-And:
-
-const std::vector<VkImageView>& GetSwapchainImageViews() const
-{
-return m_SwapchainImageViews;
-}
-
-These will be needed by the renderer.
-
-Immediate Milestone
-Graphics Pipeline
-The immediate task is implementing:
-
-OVulkanPipeline
-
-It should initially own:
-
-VkDevice m_Device;
-
-VkShaderModule m_VertexShader;
-VkShaderModule m_FragmentShader;
-
-VkPipelineLayout m_PipelineLayout;
-
-VkPipeline m_Pipeline;
-
-Public API:
-
-class OVulkanPipeline
-{
-public:
-OVulkanPipeline() = default;
-~OVulkanPipeline() = default;
-
-    bool Init(
-        VkDevice device,
-        VkFormat colorFormat
-    );
-
-    void Shutdown();
-
-    VkPipeline GetPipeline() const;
-    VkPipelineLayout GetPipelineLayout() const;
-
-private:
-bool CreateShaderModules();
-bool CreatePipelineLayout();
-bool CreateGraphicsPipeline(VkFormat colorFormat);
-
-    VkShaderModule CreateShaderModule(
-        const std::vector<char>& code
-    );
+VkPhysicalDeviceVulkan13Features{
+    .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+    .synchronization2 = VK_TRUE,
+    .dynamicRendering = VK_TRUE,
 };
 
-Shader Strategy
-For the first renderer milestone, use a hard-coded triangle.
+These features are intentional.
 
-Do NOT introduce vertex buffers yet.
+If new Vulkan functionality is introduced, verify:
 
-The vertex shader uses gl_VertexIndex.
+The feature is supported.
+The feature is enabled during device creation.
+The correct Vulkan structures are chained.
+The required extension is available if the feature is extension-based.
+Validation remains clean.
+Never assume a Vulkan feature is available simply because the physical device supports Vulkan 1.3.
 
-triangle.vert
-#version 450
+Renderer Philosophy
+The renderer should remain explicit.
 
-vec2 positions[3] = vec2[](
-vec2( 0.0, -0.5),
-vec2( 0.5,  0.5),
-vec2(-0.5,  0.5)
-);
+Important concepts should not be hidden behind overly generic APIs.
 
-vec3 colors[3] = vec3[](
-vec3(1.0, 0.0, 0.0),
-vec3(0.0, 1.0, 0.0),
-vec3(0.0, 0.0, 1.0)
-);
+In particular, maintain clear handling of:
 
-layout(location = 0) out vec3 fragColor;
-
-void main()
-{
-gl_Position = vec4(
-positions[gl_VertexIndex],
-0.0,
-1.0
-);
-
-    fragColor = colors[gl_VertexIndex];
-}
-
-triangle.frag
-#version 450
-
-layout(location = 0) in vec3 fragColor;
-
-layout(location = 0) out vec4 outColor;
-
-void main()
-{
-outColor = vec4(fragColor, 1.0);
-}
-
-Compile to SPIR-V:
-
-glslc assets/shaders/triangle.vert \
--o assets/shaders/triangle.vert.spv
-
-glslc assets/shaders/triangle.frag \
--o assets/shaders/triangle.frag.spv
-
-Initially it is acceptable to commit the generated .spv files.
-
-Later CMake should automate shader compilation.
-
-Graphics Pipeline Configuration
-The first graphics pipeline should use:
-
-Shader stages
-Vertex:
-triangle.vert.spv
-
-Fragment:
-triangle.frag.spv
-
-Vertex input
-No vertex buffers yet:
-
-vertexBindingDescriptionCount = 0;
-vertexAttributeDescriptionCount = 0;
-
-Input assembly
-VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
-
-Rasterization
-polygonMode = VK_POLYGON_MODE_FILL
-cullMode = VK_CULL_MODE_NONE
-frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE
-lineWidth = 1.0f
-
-Disable depth/stencil for the first triangle.
-
-Multisampling
-VK_SAMPLE_COUNT_1_BIT
-
-Color blending
-Initially disabled:
-
-blendEnable = VK_FALSE;
-
-Color write mask:
-
-VK_COLOR_COMPONENT_R_BIT |
-VK_COLOR_COMPONENT_G_BIT |
-VK_COLOR_COMPONENT_B_BIT |
-VK_COLOR_COMPONENT_A_BIT
-
-Dynamic State
-Viewport and scissor should be dynamic:
-
-VK_DYNAMIC_STATE_VIEWPORT
-VK_DYNAMIC_STATE_SCISSOR
-
-This avoids coupling the pipeline to a specific viewport size.
-
-During command recording:
-
-vkCmdSetViewport(...)
-vkCmdSetScissor(...)
-
-Dynamic Rendering
-Use modern Vulkan dynamic rendering.
-
-Do NOT introduce VkRenderPass or VkFramebuffer for the first renderer.
-
-Use:
-
-VkPipelineRenderingCreateInfo
-
-with:
-
-colorAttachmentCount = 1;
-pColorAttachmentFormats = &colorFormat;
-depthAttachmentFormat = VK_FORMAT_UNDEFINED;
-stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
-
-The graphics pipeline's pNext should point to the VkPipelineRenderingCreateInfo.
-
-The color format must be the actual swapchain format obtained from:
-
-VKB_Swapchain.image_format
-
-Pipeline Layout
-The first pipeline has no descriptors or push constants.
-
-Therefore the initial pipeline layout is empty:
-
-VkPipelineLayoutCreateInfo layoutInfo{};
-layoutInfo.sType =
-VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-
-layoutInfo.setLayoutCount = 0;
-layoutInfo.pushConstantRangeCount = 0;
-
-Later this will evolve toward:
-
-Pipeline Layout
-├── Frame descriptor set
-├── Material descriptor set
-├── Object descriptor set
-└── Push constants
-
-Do not implement those yet.
-
-Pipeline Lifetime
-Destruction order must be:
-
+VkImage
+VkImageView
+VkBuffer
+VkDeviceMemory
+VkCommandBuffer
+VkSemaphore
+VkFence
 VkPipeline
-↓
 VkPipelineLayout
-↓
-Vertex Shader Module
-↓
-Fragment Shader Module
+VkDescriptorSet
+VkSwapchainKHR
+Resource lifetime is a first-class architectural concern.
 
-The graphics pipeline must be destroyed BEFORE VkDevice.
+Image Layouts
+Image layouts are explicit and must be tracked correctly.
 
-Therefore application shutdown should be:
+Swapchain images commonly transition through:
 
-OVulkanPipeline::Shutdown()
-↓
-OVulkanPipeline destroyed
-↓
-OVulkanContext::Shutdown()
-↓
-VkDevice destroyed
-
-Never destroy the Vulkan device while a pipeline still references it.
-
-Application Ownership
-OApplication should own:
-
-std::unique_ptr<OVulkanContext> m_VulkanContext;
-std::unique_ptr<OVulkanPipeline> m_VulkanPipeline;
-
-Initialization order:
-
-GLFW
-↓
-Window
-↓
-OVulkanContext
-↓
-OVulkanPipeline
-
-Pipeline initialization:
-
-m_VulkanPipeline =
-std::make_unique<OVulkanPipeline>();
-
-if (!m_VulkanPipeline->Init(
-m_VulkanContext->GetDevice(),
-m_VulkanContext->GetSwapchainImageFormat()))
-{
-ORION_ERROR(
-"Failed to Initialize Graphics Pipeline"
-);
-
-    return false;
-}
-
-Shutdown:
-
-if (m_VulkanPipeline) {
-m_VulkanPipeline->Shutdown();
-m_VulkanPipeline.reset();
-}
-
-if (m_VulkanContext) {
-m_VulkanContext->Shutdown();
-m_VulkanContext.reset();
-}
-
-Shader Loading
-Current first implementation can load SPIR-V at runtime using a helper:
-
-std::vector<char> ReadBinaryFile(
-const std::string& filename
-);
-
-The shader paths can initially be:
-
-assets/shaders/triangle.vert.spv
-assets/shaders/triangle.frag.spv
-
-This is acceptable for the first milestone.
-
-However, relative paths are fragile.
-
-Eventually shader paths should be resolved relative to an asset root or executable/project root.
-
-Do not over-engineer this yet.
-
-Current Renderer Roadmap
-Implement in this order.
-
-Phase 1 — Graphics Pipeline
-[ ] Add OVulkanPipeline.h
-[ ] Add OVulkanPipeline.cpp
-[ ] Add shader loading
-[ ] Add triangle.vert
-[ ] Add triangle.frag
-[ ] Compile shaders to SPIR-V
-[ ] Create shader modules
-[ ] Create pipeline layout
-[ ] Create graphics pipeline
-[ ] Destroy pipeline correctly
-
-Phase 2 — Frame Infrastructure
-[ ] Command pool
-[ ] Command buffers
-[ ] Fences
-[ ] Image-available semaphores
-[ ] Render-finished semaphores
-[ ] Per-frame resources
-
-Recommended initial frame count:
-
-constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-
-Phase 3 — Actual Rendering
-Command sequence:
-
-Acquire swapchain image
-↓
-Begin command buffer
-↓
-Transition image:
 PRESENT_SRC_KHR
-↓
-COLOR_ATTACHMENT_OPTIMAL
-↓
-vkCmdBeginRendering()
-↓
-vkCmdBindPipeline()
-↓
-vkCmdSetViewport()
-↓
-vkCmdSetScissor()
-↓
-vkCmdDraw(3, 1, 0, 0)
-↓
-vkCmdEndRendering()
-↓
-Transition image:
-COLOR_ATTACHMENT_OPTIMAL
-↓
+        ↓
+GENERAL / TRANSFER_DST_OPTIMAL
+        ↓
 PRESENT_SRC_KHR
-↓
-End command buffer
-↓
-Submit
-↓
-Present
 
-Phase 4 — Swapchain Recreation
-Eventually:
+The exact intermediate layout should match the command being performed.
 
-Window resize
-↓
-Wait for non-zero framebuffer dimensions
-↓
-Wait for device idle
-↓
-Destroy swapchain-dependent resources
-↓
-Recreate swapchain
-↓
-Recreate image views
-↓
-Recreate graphics pipeline if format changed
+For example, vkCmdClearColorImage requires the image to be in an appropriate layout such as:
 
-Current window is non-resizable, so this can wait until after the first triangle.
-
-Phase 5 — Real Geometry
-After the hard-coded triangle works:
-
-[ ] Vertex buffer
-[ ] Index buffer
-[ ] Vertex structure
-[ ] Vertex input bindings
-[ ] Vertex attributes
-[ ] Mesh abstraction
-
-Phase 6 — GPU Resources
-[ ] Buffer abstraction
-[ ] Image abstraction
-[ ] ImageView abstraction
-[ ] Sampler
-[ ] Texture
-[ ] GPU memory allocator
-
-Phase 7 — Renderer Architecture
-Eventually move toward:
-
-ORenderer
-│
-├── OVulkanContext
-├── OVulkanPipeline
-├── Frame resources
-├── Command pools
-├── Synchronization
-├── Resource management
-└── Rendering interface
-
-Longer-term architecture:
-
-Orion Engine
-│
-├── Core
-│   ├── Application
-│   ├── Log
-│   ├── Assert
-│   ├── Time
-│   └── Types
-│
-├── Platform
-│   └── Window
-│
-├── Renderer
-│   ├── Renderer
-│   ├── RenderDevice
-│   ├── Pipeline
-│   ├── Buffer
-│   ├── Image
-│   ├── Texture
-│   ├── Shader
-│   └── CommandBuffer
-│
-├── Vulkan
-│   ├── VulkanInstance
-│   ├── VulkanDevice
-│   ├── VulkanSwapchain
-│   ├── VulkanPipeline
-│   ├── VulkanBuffer
-│   └── VulkanImage
-│
-├── Scene
-├── Assets
-├── Input
-└── Math
-
-Do NOT implement this entire architecture now.
-
-Grow toward it incrementally.
-
-Important Current Issues / Technical Debt
-1. CMake minimum version
-   Current CMake requires a very recent CMake version.
-
-Review whether:
-
-cmake_minimum_required(VERSION 4.4)
-
-is actually necessary.
-
-A lower supported version would improve portability.
-
-Do not change blindly; verify dependency requirements first.
-
-2. C++ standard discrepancy
-   README currently describes C++17+, but CMake requires:
-
-CMAKE_CXX_STANDARD 20
-
-The actual project requirement should eventually be documented consistently as C++20.
-
-3. GLOB_RECURSE
-   Current source discovery uses:
-
-file(GLOB_RECURSE ...)
-
-If retained, prefer:
-
-file(GLOB_RECURSE ORION_SOURCES
-CONFIGURE_DEPENDS
-...
-)
-
-Eventually explicit source lists or per-directory CMake files may be preferable.
-
-4. .gitmodules
-   There is an unusual/possibly stale submodule entry under:
-
-build/vendor/spdlog
-
-build/ should normally contain generated build artifacts and should not contain project dependencies.
-
-Investigate and remove the stale entry if confirmed unnecessary.
-
-5. Initialization error handling
-   Current OApplication construction calls Init() internally.
-
-This means initialization failure does not currently propagate cleanly through object construction.
-
-Current conceptual flow:
-
-OApplication()
-↓
-Init()
-↓
-failure
-↓
-object still exists
-
-Eventually change toward one of:
-
-factory/result-based initialization
+VK_IMAGE_LAYOUT_GENERAL
 
 or:
 
-OApplication::OApplication()
+VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+
+depending on the intended usage.
+
+Do not arbitrarily use image layouts.
+
+Image Barriers
+The project uses Synchronization 2.
+
+The preferred barrier structure is:
+
+VkImageMemoryBarrier2
+VkDependencyInfo
+vkCmdPipelineBarrier2(...)
+
+The project should prefer VK_PIPELINE_STAGE_2_* and VK_ACCESS_2_* flags.
+
+Do not regress to vkCmdPipelineBarrier unless there is a specific compatibility reason.
+
+Synchronization 2
+vkQueueSubmit2 is the preferred submission API.
+
+A modern submission should conceptually look like:
+
+VkSemaphoreSubmitInfo
+        ↓
+VkCommandBufferSubmitInfo
+        ↓
+VkSubmitInfo2
+        ↓
+vkQueueSubmit2
+
+Avoid mixing old VkSubmitInfo concepts into the renderer unless necessary.
+
+Semaphore Semantics
+Binary semaphore lifetime is extremely important.
+
+The renderer currently uses:
+
+Image-available semaphore
+Render-finished semaphore
+In-flight fence
+A major Vulkan rule:
+
+A binary semaphore cannot simply be reused because the CPU has submitted the previous frame.
+
+Presentation can continue using the semaphore after vkQueuePresentKHR returns.
+
+Therefore, swapchain semaphore reuse must be designed deliberately.
+
+Preferred long-term architecture:
+
+Frame 0:
+    imageAvailable[0]
+    renderFinished[0]
+    inFlightFence[0]
+
+Frame 1:
+    imageAvailable[1]
+    renderFinished[1]
+    inFlightFence[1]
+
+...
+
+However, presentation-related semaphore reuse has additional subtleties.
+
+A robust swapchain synchronization design should account for the fact that presentation completion is not necessarily represented by the normal graphics submission fence.
+
+Do not assume:
+
+vkWaitForFences(...)
+
+automatically means a presentation semaphore is safe to reuse.
+
+Frames In Flight
+The renderer should eventually support multiple frames in flight.
+
+A typical architecture should look like:
+
+MAX_FRAMES_IN_FLIGHT = 2
+
+FrameData
 {
-if (!Init())
-throw std::runtime_error(...);
+    VkSemaphore imageAvailable;
+    VkSemaphore renderFinished;
+    VkFence renderFence;
+
+    VkCommandPool commandPool;
+    VkCommandBuffer commandBuffer;
+
+    // Future:
+    descriptor allocator
+    transient allocator
+    deletion queue
 }
 
-Do not prioritize this over getting the first triangle rendered.
+The current single-frame implementation is acceptable for early development but should eventually evolve into this structure.
 
-6. Vulkan handles
-   Use:
+Swapchain Images
+Swapchain images are owned by the swapchain.
 
-VK_NULL_HANDLE
+The renderer must not destroy swapchain images manually.
 
-for Vulkan handle invalidation rather than:
+The renderer may destroy associated image views.
 
-nullptr
+Typical lifetime:
 
-Example:
+Create Swapchain
+    ↓
+Get Swapchain Images
+    ↓
+Create / retrieve Image Views
+    ↓
+Use images
+    ↓
+Wait for GPU/presentation usage to finish
+    ↓
+Destroy image views
+    ↓
+Destroy swapchain
 
-m_Instance = VK_NULL_HANDLE;
+When using vk-bootstrap, follow its ownership expectations carefully.
 
-Design Principles
-Keep these principles while developing Orion.
+Swapchain Destruction
+The swapchain must not be destroyed while any of its presentable images are still in use.
 
-1. Don't abstract Vulkan too early
-   First understand the Vulkan concepts directly.
+Before destroying the swapchain:
 
-Then wrap repeated patterns.
+vkDeviceWaitIdle(device);
 
-2. Keep ownership obvious
-   Every Vulkan resource should have one clear owner.
+is acceptable during early development and during shutdown/recreation.
 
-3. Destroy in reverse dependency order
-   Example:
+Later, a more sophisticated synchronization mechanism may be introduced.
 
-Pipeline
-↓
-Pipeline Layout
-↓
+The important invariant is:
+
+No GPU or presentation operation may still reference the swapchain
+when vkDestroySwapchainKHR is called.
+
+Resource Destruction Order
+Vulkan resources must be destroyed in reverse dependency order.
+
+A simplified device-level destruction order is:
+
+GPU work completed
+    ↓
+Graphics pipelines
+    ↓
+Pipeline layouts
+    ↓
+Render passes / dynamic rendering resources
+    ↓
+Shader modules
+    ↓
+Descriptor resources
+    ↓
+Frame synchronization objects
+    ↓
+Command buffers
+    ↓
+Command pools
+    ↓
+Swapchain image views
+    ↓
+Swapchain
+    ↓
+Logical device
+    ↓
+Surface
+    ↓
+Instance
+
+The exact order depends on which resources exist.
+
+The core rule is:
+
+Destroy children before parents.
+
+Examples:
+
+Pipeline before pipeline layout
+Command buffers before command pool
+Image views before their images/swapchain
+Swapchain before device
+Device before instance-dependent device resources
+Shutdown
+Shutdown should first ensure that the GPU is finished:
+
+vkDeviceWaitIdle(m_Device);
+
+Then resources should be destroyed in dependency order.
+
+Do not destroy:
+
+Swapchain
 Device
+Instance
 
-4. Prefer RAII eventually
-   The current explicit Init() / Shutdown() style is acceptable during the early learning phase.
+while work may still be executing against them.
 
-As the engine grows, consider RAII wrappers.
+Error Handling
+Vulkan return values should be checked.
 
-5. Keep OVulkanContext small
-   It should not become:
+For functions returning VkResult, prefer:
 
-everything Vulkan
+VkResult result = ...;
 
-6. Don't build features ahead of the renderer
-   The next meaningful milestone is the triangle.
+if (result != VK_SUCCESS)
+{
+    ...
+}
 
-7. Use validation layers aggressively
-   Any Vulkan validation error should be treated as important.
+For functions that legitimately return:
 
-Do not suppress validation errors just to get the triangle running.
+VK_SUCCESS
+VK_SUBOPTIMAL_KHR
+VK_ERROR_OUT_OF_DATE_KHR
 
-Immediate Task For Next Development Session
-Continue from:
+handle those cases explicitly.
 
-Implementing OVulkanPipeline and creating the first Vulkan graphics pipeline.
+Do not blindly treat every non-VK_SUCCESS value as fatal.
 
-First verify:
+Validation Layers
+Validation layers should remain enabled during development.
 
-[ ] OVulkanContext exposes VkDevice
-[ ] OVulkanContext exposes swapchain format
-[ ] OVulkanContext exposes swapchain extent
-[ ] OVulkanContext exposes swapchain image views
-[ ] OVulkanPipeline exists
-[ ] Triangle shaders exist
-[ ] SPIR-V shaders compile
-[ ] Shader modules are created
-[ ] Pipeline layout is created
-[ ] Graphics pipeline is created
-[ ] Pipeline is destroyed before VkDevice
+Validation messages should be considered important debugging information.
 
-At this stage, do not expect anything to appear on screen yet.
+If validation reports:
 
-The next major task after pipeline creation is:
+current layout is VK_IMAGE_LAYOUT_UNDEFINED
 
-Build command pools, command buffers, synchronization, dynamic rendering, and finally issue vkCmdDraw(3, 1, 0, 0).
+do not suppress the message.
 
-Expected first visual milestone:
+Find the missing state transition or incorrect state tracking.
 
-┌─────────────────────────────┐
-│                             │
-│            🔺               │
-│         RGB TRIANGLE        │
-│                             │
-└─────────────────────────────┘
+If validation reports:
 
-The first triangle should be implemented without a vertex buffer using gl_VertexIndex.
+semaphore may still be in use by VkSwapchainKHR
 
-After the triangle works, introduce vertex/index buffers and begin building the actual renderer abstraction.
+treat this as a synchronization/lifetime bug.
 
-Current Mental Model
-The most important architecture to preserve is:
+Logging
+The project uses a custom logging system with macros such as:
 
-                 OApplication
-                      │
-                      ▼
-              OVulkanContext
-                      │
-          ┌───────────┴───────────┐
-          │                       │
-       VkDevice               Swapchain
-          │                       │
-          └───────────┬───────────┘
-                      │
-                      ▼
-              OVulkanPipeline
-                      │
-             ┌────────┴────────┐
-             │                 │
-        Vertex Shader     Fragment Shader
-             │                 │
-             └────────┬────────┘
-                      │
-                 VkPipeline
-                      │
-                      ▼
-                ORenderer
-                      │
-          ┌───────────┼───────────┐
-          │           │           │
-      Commands      Frames    Synchronization
-          │           │           │
-          └───────────┼───────────┘
-                      ▼
-               Dynamic Rendering
-                      │
-                      ▼
-                 vkCmdDraw()
-                      │
-                      ▼
-                   Present
+ORION_TRACE(...)
+ORION_INFO(...)
+ORION_WARN(...)
+ORION_ERROR(...)
+
+Use the existing logging system instead of introducing another logging library.
+
+Vulkan validation messages are routed through the Vulkan debug callback.
+
+Naming
+Existing naming generally follows the project's C++ style.
+
+Examples:
+
+OVulkanContext
+CreateInstance()
+CreateSurface()
+ChoosePhysicalDevice()
+CreateDevice()
+CreateSwapchain()
+CreateCommandPool()
+CreateCommandBuffer()
+CreateSyncObjects()
+RenderFrame()
+Shutdown()
+
+Maintain consistency with the existing naming conventions.
+
+Do not rename large portions of the project merely for stylistic reasons.
+
+Vulkan Context
+OVulkanContext currently owns major Vulkan initialization and rendering state.
+
+It currently manages concepts such as:
+
+VkInstance
+VkSurfaceKHR
+VkPhysicalDevice
+VkDevice
+VkSwapchainKHR
+VkQueue
+VkCommandPool
+VkCommandBuffer
+VkSemaphore
+VkFence
+
+As the engine grows, this class may become too large.
+
+Possible future separation:
+
+OVulkanContext
+OVulkanDevice
+OVulkanSwapchain
+OVulkanCommandContext
+OVulkanFrameData
+OVulkanAllocator
+OVulkanPipeline
+OVulkanDescriptorAllocator
+
+Do not split these prematurely.
+
+Refactor when ownership boundaries become clear.
+
+Rendering Roadmap
+The likely progression is:
+
+Vulkan Initialization
+        ↓
+Swapchain
+        ↓
+Command Submission
+        ↓
+Clear Screen
+        ↓
+Triangle
+        ↓
+Vertex / Index Buffers
+        ↓
+Uniform Buffers
+        ↓
+Descriptors
+        ↓
+Textures
+        ↓
+Materials
+        ↓
+Meshes
+        ↓
+Camera
+        ↓
+Depth
+        ↓
+Lighting
+        ↓
+PBR
+        ↓
+Render Graph
+        ↓
+Advanced GPU-driven rendering
+
+Each step should be stable before introducing unnecessary complexity.
+
+Dynamic Rendering
+Dynamic rendering is enabled at device creation.
+
+The long-term renderer should prefer:
+
+vkCmdBeginRendering(...)
+vkCmdEndRendering(...)
+
+over building large collections of fixed render passes where appropriate.
+
+Do not maintain a render-pass abstraction merely because traditional Vulkan tutorials use it.
+
+If a render pass is required by a specific subsystem, keep it isolated.
+
+Render Graph
+A render graph is a possible future architecture.
+
+Do not introduce a render graph before the renderer has enough passes and resources to justify it.
+
+A future render graph should potentially track:
+
+Resource creation
+Resource lifetime
+Image layouts
+Pipeline stages
+Access masks
+Pass dependencies
+Barriers
+Transient resources
+Execution order
+The render graph should generate synchronization rather than forcing every rendering pass to manually manage all barriers.
+
+Memory Management
+A dedicated GPU memory abstraction will eventually be required.
+
+Potential future responsibilities:
+
+Buffer allocation
+Image allocation
+Dedicated allocations
+Suballocation
+Staging buffers
+Upload operations
+Resource lifetime
+Do not create a custom allocator before understanding the allocation patterns required by the renderer.
+
+A library such as Vulkan Memory Allocator may eventually be considered.
+
+Command Submission
+The renderer should eventually centralize command submission.
+
+Potential architecture:
+
+BeginFrame()
+    ↓
+AcquireSwapchainImage()
+    ↓
+RecordCommands()
+    ↓
+Submit()
+    ↓
+Present()
+    ↓
+EndFrame()
+
+The frame system should own synchronization details.
+
+Rendering systems should ideally not need to manually understand semaphore ownership.
+
+Current Swapchain Rendering Model
+The current basic rendering path is approximately:
+
+Wait for frame fence
+        ↓
+Reset fence
+        ↓
+Acquire swapchain image
+        ↓
+Reset command buffer
+        ↓
+Begin command buffer
+        ↓
+Transition image
+        ↓
+Clear image
+        ↓
+Transition image to PRESENT_SRC_KHR
+        ↓
+End command buffer
+        ↓
+vkQueueSubmit2
+        ↓
+vkQueuePresentKHR
+
+This is intentionally simple.
+
+It is a foundation for more advanced rendering.
+
+Important Vulkan Invariants
+AI-generated code must preserve these invariants.
+
+Image Layout
+If a command accesses an image, the image must be in a layout valid for that command.
+
+Semaphore
+A binary semaphore must not be signaled while it is still signaled or still in use.
+
+Fence
+A fence must not be reset unless the associated submission has completed or the program otherwise knows the fence can safely be reused.
+
+Command Buffer
+A command buffer must not be reset or recorded while it is still pending execution.
+
+Command Pool
+Command buffers must be freed before destroying their command pool.
+
+Swapchain
+A swapchain must not be destroyed while its images are still being used.
+
+Device
+Device-owned objects must be destroyed before destroying the device.
+
+AI Development Rules
+When modifying this project:
+
+Read the existing implementation before proposing a rewrite.
+Preserve existing architecture unless there is a concrete problem.
+Prefer incremental changes.
+Keep Vulkan validation enabled.
+Explain synchronization changes.
+Explain ownership changes.
+Check every relevant VkResult.
+Do not introduce deprecated Vulkan APIs unnecessarily.
+Prefer Vulkan 1.3 functionality where supported.
+Prefer Synchronization 2.
+Prefer vkQueueSubmit2.
+Do not silently change image layouts.
+Do not silently change queue usage.
+Do not silently change resource ownership.
+Do not destroy resources in arbitrary order.
+Do not hide synchronization behind unexplained abstractions.
+Avoid premature optimization.
+Avoid unnecessary third-party dependencies.
+Keep changes focused.
+Compile mentally against the existing types and ownership model before suggesting code.
+When Suggesting Vulkan Code
+Always consider:
+
+Who owns this resource?
+When is it created?
+When is it first used?
+Which queue uses it?
+Which pipeline stage uses it?
+Which access type is involved?
+What image layout is required?
+What synchronization makes it safe?
+When can it be destroyed?
+
+For image barriers specifically, consider:
+
+oldLayout
+newLayout
+srcStageMask
+srcAccessMask
+dstStageMask
+dstAccessMask
+aspectMask
+mip levels
+array layers
+queue family ownership
+
+Do not use:
+
+VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT
+VK_ACCESS_2_MEMORY_READ_BIT
+VK_ACCESS_2_MEMORY_WRITE_BIT
+
+as a generic solution everywhere.
+
+They are useful for debugging or simple early implementations, but production synchronization should eventually describe the actual dependency as precisely as practical.
+
+Current Known Architectural Direction
+The renderer is moving toward:
+
+Modern Vulkan
+    +
+Synchronization 2
+    +
+vkQueueSubmit2
+    +
+Dynamic Rendering
+    +
+Explicit resource lifetime
+    +
+Frame-based synchronization
+    +
+Dedicated resource abstractions
+    +
+Eventually a render graph
+
+The goal is a renderer that is explicit internally but pleasant to use from higher-level engine systems.
+
+What Not To Do
+Do not:
+
+Disable validation to make errors disappear.
+Add vkDeviceWaitIdle() after every operation as a permanent synchronization strategy.
+Ignore swapchain synchronization errors.
+Reuse binary semaphores without understanding their lifetime.
+Assume vkQueuePresentKHR() means presentation has completed.
+Destroy Vulkan objects in creation order.
+Use VK_IMAGE_LAYOUT_UNDEFINED as a generic current layout.
+Add barriers without understanding their dependency.
+Use ALL_COMMANDS for every synchronization operation in the final renderer.
+Add a render graph before the renderer needs one.
+Build a huge renderer abstraction around one Vulkan call.
+Copy an entire architecture from another engine without understanding why it exists.
+Optimize before profiling.
+Treat validation warnings as harmless.
+Expected AI Response Style
+When helping with Orion:
+
+Be technically precise.
+Prefer concrete Vulkan explanations.
+Explain why a Vulkan rule exists.
+Point out lifetime and synchronization bugs directly.
+Show minimal fixes before suggesting architectural refactors.
+Distinguish immediate fixes from long-term architecture.
+Call out hidden assumptions.
+Mention relevant Vulkan invariants.
+Avoid unnecessary abstraction.
+If code is incorrect, say exactly why.
+If there are multiple valid approaches, explain the tradeoffs.
+
