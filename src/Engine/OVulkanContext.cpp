@@ -1,4 +1,6 @@
 #include "OVulkanContext.h"
+#include"OVulkanPipeline.h"
+
 #include "GLFW/glfw3.h"
 #include "OLog.h"
 #include "VkBootstrap.h"
@@ -298,7 +300,7 @@ void OVulkanContext::TransitionImage(VkCommandBuffer commandBuffer, VkImage imag
     vkCmdPipelineBarrier2(commandBuffer, &depInfo);
 }
 
-void OVulkanContext::RenderFrame() {
+void OVulkanContext::RenderFrame(const OVulkanPipeline& pipeline) {
     // Wait for previous frame to finish.
     vkWaitForFences(m_Device, 1, &m_InFlightFence, VK_TRUE, UINT64_MAX);
 
@@ -342,18 +344,36 @@ void OVulkanContext::RenderFrame() {
 
 	VkImageLayout oldLayout = m_SwapchainImageLayouts[imageIndex];
     // PRESENT -> TRANSFER_DST
-    TransitionImage(m_CommandBuffer, swapchainImage, oldLayout, VK_IMAGE_LAYOUT_GENERAL);
+    TransitionImage(m_CommandBuffer, swapchainImage, oldLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-	m_SwapchainImageLayouts[imageIndex] = VK_IMAGE_LAYOUT_GENERAL;
+	m_SwapchainImageLayouts[imageIndex] = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
     // Blue!
-    VkClearColorValue clearColor{};
+    VkClearValue clearColor{
+		.color = {
+			{0.05f, 0.05f, 0.05f, 1.0f}
+		},
+	};
 
-    clearColor.float32[0] = 1.0f;
-    clearColor.float32[1] = 0.0f;
-    clearColor.float32[2] = 0.0f;
-    clearColor.float32[3] = 1.0f;
+	VkRenderingAttachmentInfo colorAttachment{
+		.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+		.imageView = m_SwapchainImageViews[imageIndex],
+		.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+		.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+		.clearValue = clearColor
+	};
 
+	VkRenderingInfo renderingInfo = {
+		.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
+		.renderArea = {
+			.offset = {0, 0},
+			.extent = VKB_Swapchain.extent,
+		},
+		.layerCount = 1,
+		.colorAttachmentCount = 1,
+		.pColorAttachments = &colorAttachment,
+	};
 
     VkImageSubresourceRange range{};
 
@@ -366,9 +386,35 @@ void OVulkanContext::RenderFrame() {
     range.layerCount = 1;
 
 
-	vkCmdClearColorImage(m_CommandBuffer, swapchainImage, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range);
+	// vkCmdClearColorImage(m_CommandBuffer, swapchainImage, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range);
 
-    TransitionImage(m_CommandBuffer, swapchainImage, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+	vkCmdBeginRendering(m_CommandBuffer, &renderingInfo);
+
+	VkViewport viewport{
+		.x = 0.0f,
+		.y = 0.0f,
+		.width = static_cast<float>(VKB_Swapchain.extent.width),
+		.height= static_cast<float>(VKB_Swapchain.extent.height),
+		.minDepth = 0.0f,
+		.maxDepth = 1.0f
+	};
+
+	VkRect2D scissor{
+		.offset = {0, 0},
+		.extent = VKB_Swapchain.extent
+	};
+
+	vkCmdSetViewport(m_CommandBuffer, 0, 1, &viewport);
+	vkCmdSetScissor(m_CommandBuffer, 0, 1, &scissor);
+
+
+	vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.GetPipeline());
+
+	vkCmdDraw(m_CommandBuffer, 3, 1, 0, 0);
+
+	vkCmdEndRendering(m_CommandBuffer);
+
+    TransitionImage(m_CommandBuffer, swapchainImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
 	m_SwapchainImageLayouts[imageIndex] = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
@@ -382,6 +428,7 @@ void OVulkanContext::RenderFrame() {
         ORION_ERROR("Failed to end command buffer");
         return;
     }
+
 
 
     // Submit

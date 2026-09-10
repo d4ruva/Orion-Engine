@@ -51,7 +51,14 @@ void OApplication::Run() {
     while (!glfwWindowShouldClose(m_Window)) {
         glfwPollEvents();
 
-		m_VulkanContext->RenderFrame();
+		if(glfwGetKey(m_Window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+		{
+			// TODO: Temporary fix
+			OApplication::Shutdown();
+			break;
+		}
+
+		m_VulkanContext->RenderFrame(*m_Pipeline);
     }
 }
 

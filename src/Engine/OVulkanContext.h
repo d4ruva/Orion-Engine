@@ -9,6 +9,7 @@
 
 
 namespace Orion {
+class OVulkanPipeline;
 class OVulkanContext {
 
     public:
@@ -43,7 +44,7 @@ class OVulkanContext {
     void TransitionImage(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout);
 
     public:
-    void RenderFrame();
+    void RenderFrame(const OVulkanPipeline& pipeline);
 
     private:
     GLFWwindow* m_Window = nullptr;
