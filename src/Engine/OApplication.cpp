@@ -18,7 +18,7 @@ bool OApplication::Init() {
     }
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
     m_Window = glfwCreateWindow(m_Width, m_Height, "Untitled Window", nullptr, nullptr);
 

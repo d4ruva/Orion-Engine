@@ -16,6 +16,8 @@ class OVulkanContext {
     OVulkanContext() = default;
     ~OVulkanContext() = default;
 
+	bool RecreateSwapchain();
+
     bool Init(GLFWwindow* window);
     void Shutdown();
 
@@ -40,8 +42,11 @@ class OVulkanContext {
     bool CreateCommandPool();
     bool CreateCommandBuffer();
     bool CreateSyncObjects();
+    bool CreateSwapchainSyncObjects();
 
     void TransitionImage(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout);
+
+	void DestroySwaphchainResources();
 
     public:
     void RenderFrame(const OVulkanPipeline& pipeline);

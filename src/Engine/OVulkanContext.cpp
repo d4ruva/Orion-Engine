@@ -1,5 +1,5 @@
 #include "OVulkanContext.h"
-#include"OVulkanPipeline.h"
+#include "OVulkanPipeline.h"
 
 #include "GLFW/glfw3.h"
 #include "OLog.h"
@@ -91,14 +91,14 @@ bool OVulkanContext::CreateSurface() {
 bool OVulkanContext::ChoosePhysicalDevice() {
     vkb::PhysicalDeviceSelector selector{ VKB_Instance };
 
-	VkPhysicalDeviceVulkan13Features vk13Features{
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
-		.synchronization2 = VK_TRUE,
+    VkPhysicalDeviceVulkan13Features vk13Features{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+        .synchronization2 = VK_TRUE,
 
-		.dynamicRendering = VK_TRUE,
-	};
+        .dynamicRendering = VK_TRUE,
+    };
 
-	selector.set_required_features_13(vk13Features);
+    selector.set_required_features_13(vk13Features);
 
     auto phys_dev_ret = selector.set_minimum_version(1, 3).set_surface(m_Surface).select();
 
@@ -153,10 +153,54 @@ bool OVulkanContext::CreateDevice() {
     return true;
 }
 
+bool OVulkanContext::RecreateSwapchain() {
+    int width, height = 0;
+
+    glfwGetFramebufferSize(m_Window, &width, &height);
+
+    while (width == 0 || height == 0) {
+        glfwGetFramebufferSize(m_Window, &width, &height);
+        glfwWaitEvents();
+    }
+
+    vkDeviceWaitIdle(m_Device);
+
+	for(VkSemaphore semaphore: m_RenderFinishedSemaphores)
+	{
+		vkDestroySemaphore(m_Device, semaphore, nullptr);
+	}
+
+	m_RenderFinishedSemaphores.clear();
+
+	VKB_Swapchain.destroy_image_views(m_SwapchainImageViews);
+
+	m_SwapchainImageViews.clear();
+	m_SwapchainImages.clear();
+	m_SwapchainImageLayouts.clear();
+
+	vkb::destroy_swapchain(VKB_Swapchain);
+
+	m_Swapchain = VK_NULL_HANDLE;
+
+    // DestroySwaphchainResources();
+
+    if (!CreateSwapchain()) {
+        ORION_ERROR("Failed to recreate swapchain");
+        return false;
+    }
+
+    if (!CreateSyncObjects()) {
+        ORION_ERROR("Failed to recreate swapchain sync objects");
+        return false;
+    }
+
+    return true;
+}
+
 bool OVulkanContext::CreateSwapchain() {
     vkb::SwapchainBuilder swapchainBuilder{ VKB_Device };
 
-	swapchainBuilder.add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+    swapchainBuilder.add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT);
 
     int width, height;
 
@@ -180,9 +224,27 @@ bool OVulkanContext::CreateSwapchain() {
     m_SwapchainImages = VKB_Swapchain.get_images().value();
     m_SwapchainImageViews = VKB_Swapchain.get_image_views().value();
 
-	m_SwapchainImageLayouts.resize(m_SwapchainImages.size(), VK_IMAGE_LAYOUT_UNDEFINED);
+    m_SwapchainImageLayouts.resize(m_SwapchainImages.size(), VK_IMAGE_LAYOUT_UNDEFINED);
 
     return true;
+}
+
+void OVulkanContext::DestroySwaphchainResources() {
+    for (VkSemaphore semaphore : m_RenderFinishedSemaphores) {
+        vkDestroySemaphore(m_Device, semaphore, nullptr);
+
+        m_RenderFinishedSemaphores.clear();
+
+        VKB_Swapchain.destroy_image_views(m_SwapchainImageViews);
+        m_SwapchainImageViews.clear();
+
+        m_SwapchainImages.clear();
+        m_SwapchainImageLayouts.clear();
+
+        vkb::destroy_swapchain(VKB_Swapchain);
+
+        m_Swapchain = VK_NULL_HANDLE;
+    }
 }
 
 bool OVulkanContext::CreateImageViews() { return true; }
@@ -235,17 +297,6 @@ bool OVulkanContext::CreateSyncObjects() {
 
     ORION_INFO("Created Image Available Semaphore Successfully");
 
-	m_RenderFinishedSemaphores.resize(m_SwapchainImages.size());
-
-	for(auto& semaphore: m_RenderFinishedSemaphores){
-    if (vkCreateSemaphore(m_Device, &semaphoreInfo, nullptr, &semaphore) != VK_SUCCESS) {
-        ORION_ERROR("Failed to Create Render Finished Semaphore");
-        return false;
-    }
-	}
-
-    ORION_INFO("Created Render Finished Semaphore Successfully");
-
     if (vkCreateFence(m_Device, &fenceInfo, nullptr, &m_InFlightFence) != VK_SUCCESS) {
         ORION_ERROR("Failed to create in flight fences");
         return false;
@@ -253,11 +304,32 @@ bool OVulkanContext::CreateSyncObjects() {
 
     ORION_INFO("Created Sync Objects Successfully");
 
-    return true;
+    return CreateSwapchainSyncObjects();
+}
+
+bool OVulkanContext::CreateSwapchainSyncObjects() {
+
+    VkSemaphoreCreateInfo semaphoreInfo = {
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+    };
+
+
+    m_RenderFinishedSemaphores.resize(m_SwapchainImages.size());
+
+
+    for (size_t i = 0; i < m_SwapchainImages.size(); ++i) {
+
+        if (vkCreateSemaphore(m_Device, &semaphoreInfo, nullptr, &m_RenderFinishedSemaphores[i]) != VK_SUCCESS) {
+            ORION_ERROR("Failed to Create Render Finished Semaphore");
+            return false;
+        }
+    }
+
+	return true;
 }
 
 void OVulkanContext::TransitionImage(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout) {
-	VkImageMemoryBarrier2 imageBarrier {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+    VkImageMemoryBarrier2 imageBarrier{ .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
     imageBarrier.pNext = nullptr;
 
     imageBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
@@ -269,19 +341,19 @@ void OVulkanContext::TransitionImage(VkCommandBuffer commandBuffer, VkImage imag
     imageBarrier.newLayout = newLayout;
 
     imageBarrier.subresourceRange = {
-		.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-		.baseMipLevel = 0,
-		.levelCount = 1,
-		.baseArrayLayer = 0,
-		.layerCount = 1,
-	};
+        .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+        .baseMipLevel = 0,
+        .levelCount = 1,
+        .baseArrayLayer = 0,
+        .layerCount = 1,
+    };
     imageBarrier.image = image;
 
-    VkDependencyInfo depInfo {};
+    VkDependencyInfo depInfo{};
     depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
     depInfo.pNext = nullptr;
 
-	// Nothing needs to be synchronized from an UNDEFINED layout.
+    // Nothing needs to be synchronized from an UNDEFINED layout.
     if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
         imageBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
         imageBarrier.srcAccessMask = VK_ACCESS_2_NONE;
@@ -313,13 +385,19 @@ void OVulkanContext::RenderFrame(const OVulkanPipeline& pipeline) {
     VkResult result =
         vkAcquireNextImageKHR(m_Device, m_Swapchain, UINT64_MAX, m_ImageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
 
+	if(result == VK_ERROR_OUT_OF_DATE_KHR)
+	{
+		RecreateSwapchain();
+		return;
+	}
+
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
         ORION_ERROR("Failed to acquire swapchain image: {}", static_cast<int>(result));
 
         return;
     }
 
-	VkSemaphore renderFinishedSemaphore = m_RenderFinishedSemaphores[imageIndex];
+    VkSemaphore renderFinishedSemaphore = m_RenderFinishedSemaphores[imageIndex];
 
 
     // Reset command buffer.
@@ -329,7 +407,7 @@ void OVulkanContext::RenderFrame(const OVulkanPipeline& pipeline) {
     // Begin recording.
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
     result = vkBeginCommandBuffer(m_CommandBuffer, &beginInfo);
 
@@ -342,29 +420,25 @@ void OVulkanContext::RenderFrame(const OVulkanPipeline& pipeline) {
     VkImage swapchainImage = m_SwapchainImages[imageIndex];
 
 
-	VkImageLayout oldLayout = m_SwapchainImageLayouts[imageIndex];
+    VkImageLayout oldLayout = m_SwapchainImageLayouts[imageIndex];
     // PRESENT -> TRANSFER_DST
     TransitionImage(m_CommandBuffer, swapchainImage, oldLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-	m_SwapchainImageLayouts[imageIndex] = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    m_SwapchainImageLayouts[imageIndex] = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
     // Blue!
     VkClearValue clearColor{
-		.color = {
-			{0.05f, 0.05f, 0.05f, 1.0f}
-		},
-	};
+        .color = { { 0.05f, 0.05f, 0.05f, 1.0f } },
+    };
 
-	VkRenderingAttachmentInfo colorAttachment{
-		.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-		.imageView = m_SwapchainImageViews[imageIndex],
-		.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-		.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-		.clearValue = clearColor
-	};
+    VkRenderingAttachmentInfo colorAttachment{ .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        .imageView = m_SwapchainImageViews[imageIndex],
+        .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+        .clearValue = clearColor };
 
-	VkRenderingInfo renderingInfo = {
+    VkRenderingInfo renderingInfo = {
 		.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
 		.renderArea = {
 			.offset = {0, 0},
@@ -386,41 +460,31 @@ void OVulkanContext::RenderFrame(const OVulkanPipeline& pipeline) {
     range.layerCount = 1;
 
 
-	// vkCmdClearColorImage(m_CommandBuffer, swapchainImage, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range);
+    // vkCmdClearColorImage(m_CommandBuffer, swapchainImage, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range);
 
-	vkCmdBeginRendering(m_CommandBuffer, &renderingInfo);
+    vkCmdBeginRendering(m_CommandBuffer, &renderingInfo);
 
-	VkViewport viewport{
-		.x = 0.0f,
-		.y = 0.0f,
-		.width = static_cast<float>(VKB_Swapchain.extent.width),
-		.height= static_cast<float>(VKB_Swapchain.extent.height),
-		.minDepth = 0.0f,
-		.maxDepth = 1.0f
-	};
+    VkViewport viewport{ .x = 0.0f,
+        .y = 0.0f,
+        .width = static_cast<float>(VKB_Swapchain.extent.width),
+        .height = static_cast<float>(VKB_Swapchain.extent.height),
+        .minDepth = 0.0f,
+        .maxDepth = 1.0f };
 
-	VkRect2D scissor{
-		.offset = {0, 0},
-		.extent = VKB_Swapchain.extent
-	};
+    VkRect2D scissor{ .offset = { 0, 0 }, .extent = VKB_Swapchain.extent };
 
-	vkCmdSetViewport(m_CommandBuffer, 0, 1, &viewport);
-	vkCmdSetScissor(m_CommandBuffer, 0, 1, &scissor);
+    vkCmdSetViewport(m_CommandBuffer, 0, 1, &viewport);
+    vkCmdSetScissor(m_CommandBuffer, 0, 1, &scissor);
 
+    vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.GetPipeline());
 
-	vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.GetPipeline());
+    vkCmdDraw(m_CommandBuffer, 3, 1, 0, 0);
 
-	vkCmdDraw(m_CommandBuffer, 3, 1, 0, 0);
-
-	vkCmdEndRendering(m_CommandBuffer);
+    vkCmdEndRendering(m_CommandBuffer);
 
     TransitionImage(m_CommandBuffer, swapchainImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
-	m_SwapchainImageLayouts[imageIndex] = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-
-    // TRANSFER_DST -> PRESENT
-
+    m_SwapchainImageLayouts[imageIndex] = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
     result = vkEndCommandBuffer(m_CommandBuffer);
 
@@ -429,41 +493,36 @@ void OVulkanContext::RenderFrame(const OVulkanPipeline& pipeline) {
         return;
     }
 
-
-
     // Submit
-	//
-	VkSemaphoreSubmitInfo waitSemaphoreInfo{
-		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-		.semaphore = m_ImageAvailableSemaphore,
-		.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-	};
+    //
+    VkSemaphoreSubmitInfo waitSemaphoreInfo{
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+        .semaphore = m_ImageAvailableSemaphore,
+        .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+    };
 
-	VkSemaphoreSubmitInfo signalSemaphoreInfo{
-		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-		.semaphore = renderFinishedSemaphore,
-		.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-	};
+    VkSemaphoreSubmitInfo signalSemaphoreInfo{
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+        .semaphore = renderFinishedSemaphore,
+        .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+    };
 
-	VkCommandBufferSubmitInfo cmdSubmitInfo{
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
-		.commandBuffer = m_CommandBuffer
-	};
+    VkCommandBufferSubmitInfo cmdSubmitInfo{ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO, .commandBuffer = m_CommandBuffer };
 
-	VkSubmitInfo2 submitInfo = {
-		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+    VkSubmitInfo2 submitInfo = {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
 
-		.waitSemaphoreInfoCount = 1,
-		.pWaitSemaphoreInfos = &waitSemaphoreInfo,
+        .waitSemaphoreInfoCount = 1,
+        .pWaitSemaphoreInfos = &waitSemaphoreInfo,
 
-		.commandBufferInfoCount = 1,
-		.pCommandBufferInfos = &cmdSubmitInfo,
+        .commandBufferInfoCount = 1,
+        .pCommandBufferInfos = &cmdSubmitInfo,
 
-		.signalSemaphoreInfoCount = 1,
-		.pSignalSemaphoreInfos = &signalSemaphoreInfo,
-	};
+        .signalSemaphoreInfoCount = 1,
+        .pSignalSemaphoreInfos = &signalSemaphoreInfo,
+    };
 
-	result = vkQueueSubmit2(graphicsQueue, 1, &submitInfo, m_InFlightFence);
+    result = vkQueueSubmit2(graphicsQueue, 1, &submitInfo, m_InFlightFence);
 
     if (result != VK_SUCCESS) {
         ORION_ERROR("Failed to Submit Command Buffer");
@@ -474,57 +533,51 @@ void OVulkanContext::RenderFrame(const OVulkanPipeline& pipeline) {
 
     // Present.
     VkPresentInfoKHR presentInfo{};
-
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-
     presentInfo.waitSemaphoreCount = 1;
-
     presentInfo.pWaitSemaphores = &renderFinishedSemaphore;
-
     presentInfo.swapchainCount = 1;
-
     presentInfo.pSwapchains = &m_Swapchain;
-
     presentInfo.pImageIndices = &imageIndex;
-
 
     result = vkQueuePresentKHR(graphicsQueue, &presentInfo);
 
-    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+	if(result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+	{
+		RecreateSwapchain();
+		return;
+	}
+
+    if (result != VK_SUCCESS) {
         ORION_ERROR("Failed to present swapchain image: {}", static_cast<int>(result));
     }
 }
 
 void OVulkanContext::Shutdown() {
 
-	vkDeviceWaitIdle(m_Device);
+    vkDeviceWaitIdle(m_Device);
 
-	if(m_ImageAvailableSemaphore != VK_NULL_HANDLE)
-	{
-		vkDestroySemaphore(m_Device, m_ImageAvailableSemaphore, nullptr);
-	}
+    if (m_ImageAvailableSemaphore != VK_NULL_HANDLE) {
+        vkDestroySemaphore(m_Device, m_ImageAvailableSemaphore, nullptr);
+    }
 
-	if(!m_RenderFinishedSemaphores.empty()){
-		for(auto& semaphore: m_RenderFinishedSemaphores)
-		{
-			vkDestroySemaphore(m_Device, semaphore, nullptr);
-		}
-	}
+    if (!m_RenderFinishedSemaphores.empty()) {
+        for (auto& semaphore : m_RenderFinishedSemaphores) {
+            vkDestroySemaphore(m_Device, semaphore, nullptr);
+        }
+    }
 
-	if(m_InFlightFence != VK_NULL_HANDLE)
-	{
-		vkDestroyFence(m_Device, m_InFlightFence, nullptr);
-	}
+    if (m_InFlightFence != VK_NULL_HANDLE) {
+        vkDestroyFence(m_Device, m_InFlightFence, nullptr);
+    }
 
-	if(m_CommandBuffer != VK_NULL_HANDLE)
-	{
-		vkFreeCommandBuffers(m_Device, m_CommandPool, 1, &m_CommandBuffer);
-	}
+    if (m_CommandBuffer != VK_NULL_HANDLE) {
+        vkFreeCommandBuffers(m_Device, m_CommandPool, 1, &m_CommandBuffer);
+    }
 
-	if(m_CommandPool != VK_NULL_HANDLE)
-	{
-		vkDestroyCommandPool(m_Device, m_CommandPool, nullptr);
-	}
+    if (m_CommandPool != VK_NULL_HANDLE) {
+        vkDestroyCommandPool(m_Device, m_CommandPool, nullptr);
+    }
 
     if (!m_SwapchainImageViews.empty()) {
         for (auto imageView : m_SwapchainImageViews) {

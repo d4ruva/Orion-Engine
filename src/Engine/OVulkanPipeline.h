@@ -2,7 +2,6 @@
 
 #include "OVulkanContext.h"
 
-#include <memory>
 #include <vulkan/vulkan_core.h>
 
 #include <vector>
